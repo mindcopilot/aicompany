@@ -20,11 +20,13 @@ import { PromptsView } from "./views/Prompts";
 import { SkillsView } from "./views/Skills";
 import { AgentsView } from "./views/Agents";
 import { AutomationsView } from "./views/Automations";
+import { RunsView } from "./views/Runs";
+import { SettingsView } from "./views/Settings";
 import { Login } from "./views/Login";
 
 import { api } from "./lib/api";
 import { useAuth } from "./lib/auth";
-import type { Company } from "./types/api";
+import type { Company, AssetCounts } from "./types/api";
 
 export function App() {
   const { loading, user } = useAuth();
@@ -48,6 +50,7 @@ function AuthedApp() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [agentBusy, setAgentBusy] = useState(true);
   const [company, setCompany] = useState<Company | null>(null);
+  const [counts, setCounts] = useState<AssetCounts | null>(null);
   // The direction handed off into 业务线上化 when its 4-维 validation passes.
   const [productDirectionId, setProductDirectionId] = useState<string | null>(null);
 
@@ -59,6 +62,12 @@ function AuthedApp() {
   useEffect(() => {
     void api.dashboard().then(d => setCompany(d.company)).catch(() => {});
   }, []);
+
+  // Refetch asset counts on view change so sidebar badges stay in sync
+  // after the user creates or deletes items.
+  useEffect(() => {
+    void api.assetCounts().then(setCounts).catch(() => {});
+  }, [active]);
 
   useEffect(() => {
     const i = window.setInterval(() => setAgentBusy(b => Math.random() > 0.25 ? true : !b), 8000);
@@ -76,7 +85,7 @@ function AuthedApp() {
         agentBusy={agentBusy}
         shortName={company?.shortName ?? "LumenEdu"}
       />
-      <Sidebar active={active} onNav={setActive} />
+      <Sidebar active={active} onNav={setActive} counts={counts} />
       <main className="main" key={active}>
         {active === "dashboard"   && <Dashboard setActive={setActive} />}
         {active === "direction"   && <DirectionView onGotoProduct={gotoProduct} />}
@@ -91,6 +100,8 @@ function AuthedApp() {
         {active === "skills"      && <SkillsView />}
         {active === "agents"      && <AgentsView />}
         {active === "automations" && <AutomationsView />}
+        {active === "runs"        && <RunsView />}
+        {active === "settings"    && <SettingsView />}
       </main>
 
       {!copilotOpen && (

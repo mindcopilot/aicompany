@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { Icon } from "../components/Icon";
 import { AgentTag, SignalCell } from "../components/primitives";
 import { CreateForm } from "../components/CreateForm";
@@ -7,10 +7,16 @@ import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
 import type { Automation } from "../types/api";
 
+const FILTERS = ["全部", "生效中", "草稿"] as const;
+
 export function AutomationsView() {
   const { openDrawer, toast } = useUI();
-  const { data } = useAsync(() => api.automations(), []);
-  const items = data ?? [];
+  const { data, refresh } = useAsync(() => api.automations(), []);
+  const all = data ?? [];
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("全部");
+  const items = all.filter(w =>
+    filter === "全部" ? true : filter === "生效中" ? w.on : !w.on
+  );
 
   return (
     <>
@@ -31,6 +37,12 @@ export function AutomationsView() {
                 { name: "action", label: "执行动作", type: "textarea", placeholder: "触发后让哪个 Agent 做什么……" },
               ]}
               submitLabel="创建 workflow"
+              onSubmit={async v => {
+                await api.automationCreate({
+                  name: v.name!, trigger: v.trigger ?? "", action: v.action ?? "",
+                });
+                await refresh();
+              }}
               successMsg={v => `已创建 workflow「${v.name}」· 默认为草稿状态`}
             />,
           })}><Icon name="plus" size={14} /> 新建 workflow</button>
@@ -39,24 +51,39 @@ export function AutomationsView() {
 
       <div className="module-body">
         <div className="grid-4" style={{ marginBottom: 16 }}>
-          <SignalCell n="4"     l="生效中" />
-          <SignalCell n="43"    l="本周运行" />
-          <SignalCell n="11.4h" l="本周节省" />
+          <SignalCell n={String(all.filter(w => w.on).length)} l="生效中" />
+          <SignalCell n={String(all.reduce((s, w) => s + w.runs, 0))} l="累计运行" />
+          <SignalCell n={String(all.length)} l="Workflow 总数" />
           <SignalCell n="98%"   l="平均成功率" />
         </div>
 
         <div className="module-section">
           <div className="section-head">
             <div className="section-title">Workflows</div>
-            <div className="seg"><button className="active">全部</button><button>生效中</button><button>草稿</button></div>
+            <div className="seg">
+              {FILTERS.map(f => (
+                <button key={f} className={filter === f ? "active" : ""} onClick={() => setFilter(f)}>{f}</button>
+              ))}
+            </div>
           </div>
 
           <div className="wf-list">
             {items.map(w => (
               <div key={w.id} className={`wf-row ${w.on ? "" : "off"}`} onClick={() => openDrawer({
-                eyebrow: "WORKFLOW", title: w.name, sub: w.trigger.text, body: <WFDrawer w={w} />,
+                eyebrow: "WORKFLOW", title: w.name, sub: w.trigger.text, body: <WFDrawer w={w} onChange={refresh} />,
               })}>
-                <div><span className={`wf-pill ${w.on ? "on" : "off"}`}>{w.on ? "ON" : "OFF"}</span></div>
+                <div>
+                  <button className={`wf-pill ${w.on ? "on" : "off"}`} title="点击切换启用状态"
+                    style={{ cursor: "pointer", border: "none" }}
+                    onClick={async e => {
+                      e.stopPropagation();
+                      try {
+                        await api.automationSetOn(w.id, !w.on);
+                        await refresh();
+                        toast(w.on ? `已停用「${w.name}」` : `已启用「${w.name}」`, w.on ? "warn" : "ok");
+                      } catch (err) { toast(`操作失败：${err instanceof Error ? err.message : String(err)}`, "warn"); }
+                    }}>{w.on ? "ON" : "OFF"}</button>
+                </div>
                 <div>
                   <div className="wf-name">{w.name}</div>
                   <div className="wf-trigger">
@@ -120,13 +147,13 @@ export function AutomationsView() {
   );
 }
 
-function WFDrawer({ w }: { w: Automation }) {
+function WFDrawer({ w, onChange }: { w: Automation; onChange: () => Promise<void> }) {
   const { toast, closeDrawer } = useUI();
   return (
     <div>
       <div className="grid-2" style={{ gap: 8 }}>
         <SignalCell n={w.runs} l="总运行次数" />
-        <SignalCell n={w.saved.split(" / ")[0] ?? w.saved} l="每次节省" />
+        <SignalCell n={w.on ? "生效中" : "草稿"} l="当前状态" />
       </div>
       <div className="mt-16">
         <div className="muted text-xs mono" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>触发条件</div>
@@ -150,10 +177,24 @@ function WFDrawer({ w }: { w: Automation }) {
       </div>
       <div className="mt-16" style={{ display: "flex", gap: 8 }}>
         <button className="btn" onClick={() => toast(`已手动运行一次：${w.name}`)}><Icon name="play" size={12} /> 手动运行一次</button>
-        <button className="btn" onClick={() => toast(`进入流程编辑器：${w.name}`)}><Icon name="pen" size={12} /> 编辑流程</button>
+        <button className="btn" onClick={async () => {
+          try {
+            await api.automationSetOn(w.id, !w.on);
+            await onChange();
+            toast(w.on ? `已停用 workflow：${w.name}` : `已启用 workflow：${w.name}`, w.on ? "warn" : "ok");
+            closeDrawer();
+          } catch (e) { toast(`操作失败：${e instanceof Error ? e.message : String(e)}`, "warn"); }
+        }}><Icon name={w.on ? "pause" : "play"} size={12} /> {w.on ? "停用" : "启用"}</button>
         <button className="btn ghost" style={{ marginLeft: "auto" }}
-          onClick={() => { toast(`已停用 workflow：${w.name}`, "warn"); closeDrawer(); }}>
-          <Icon name="x" size={12} /> 停用
+          onClick={async () => {
+            try {
+              await api.automationRemove(w.id);
+              await onChange();
+              toast(`已删除 workflow：${w.name}`, "warn");
+              closeDrawer();
+            } catch (e) { toast(`删除失败：${e instanceof Error ? e.message : String(e)}`, "warn"); }
+          }}>
+          <Icon name="x" size={12} /> 删除
         </button>
       </div>
     </div>

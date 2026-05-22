@@ -1,14 +1,19 @@
 import { Icon } from "./Icon";
 import { UserMenu } from "./UserMenu";
+import type { AssetCounts } from "../types/api";
 
 export type ViewId =
   | "dashboard"
   | "direction"
   | "product" | "content" | "traffic" | "reach"
   | "data"
-  | "models" | "knowledge" | "prompts" | "skills" | "agents" | "automations";
+  | "models" | "knowledge" | "prompts" | "skills" | "agents" | "automations"
+  | "runs" | "settings";
 
-export interface NavItem { id: ViewId; name: string; icon: string; badge?: string | null; }
+export interface NavItem {
+  id: ViewId; name: string; icon: string; badge?: string | null;
+  countKey?: keyof AssetCounts;
+}
 export interface NavGroup { group: string; items: NavItem[]; }
 
 export const NAV: NavGroup[] = [
@@ -29,11 +34,15 @@ export const NAV: NavGroup[] = [
   ]},
   { group: "AI 资产 · INTELLIGENCE", items: [
     { id: "models",      name: "模型管理",   icon: "cpu",  badge: "26" },
-    { id: "knowledge",   name: "知识库",     icon: "book", badge: "218" },
-    { id: "prompts",     name: "Prompts",    icon: "msg",  badge: "6" },
-    { id: "skills",      name: "Skills",     icon: "bolt", badge: "14" },
+    { id: "knowledge",   name: "知识库",     icon: "book", badge: "0", countKey: "knowledge" },
+    { id: "prompts",     name: "Prompts",    icon: "msg",  badge: "0", countKey: "prompts" },
+    { id: "skills",      name: "Skills",     icon: "bolt", badge: "0", countKey: "skills" },
     { id: "agents",      name: "Agent 编排", icon: "git",  badge: "AI" },
-    { id: "automations", name: "自动化",     icon: "zap",  badge: "4" },
+    { id: "automations", name: "自动化",     icon: "zap",  badge: "0", countKey: "automations" },
+  ]},
+  { group: "系统 · SYSTEM", items: [
+    { id: "runs",     name: "运行记录", icon: "activity", badge: null },
+    { id: "settings", name: "设置",     icon: "settings", badge: null },
   ]},
 ];
 
@@ -75,14 +84,18 @@ export function Topbar({
       </button>
       <div className="topbar-right">
         <button className="icon-btn"><Icon name="bell" size={16} /><span className="dot" /></button>
-        <button className="icon-btn"><Icon name="settings" size={16} /></button>
-        <UserMenu />
+        <button className="icon-btn" title="设置" onClick={() => onNav("settings")}>
+          <Icon name="settings" size={16} />
+        </button>
+        <UserMenu onNav={onNav} />
       </div>
     </div>
   );
 }
 
-export function Sidebar({ active, onNav }: { active: ViewId; onNav: (id: ViewId) => void; }) {
+export function Sidebar({ active, onNav, counts }: {
+  active: ViewId; onNav: (id: ViewId) => void; counts?: AssetCounts | null;
+}) {
   return (
     <aside className="sidebar">
       {NAV.map(group => (
@@ -91,13 +104,16 @@ export function Sidebar({ active, onNav }: { active: ViewId; onNav: (id: ViewId)
             <span>{group.group}</span>
             <span className="count">{group.items.length}</span>
           </div>
-          {group.items.map(it => (
-            <button key={it.id} className={`nav-item ${active === it.id ? "active" : ""}`} onClick={() => onNav(it.id)}>
-              <span className="nav-icon"><Icon name={it.icon} size={15} /></span>
-              <span>{it.name}</span>
-              {it.badge && <span className={`nav-badge ${it.badge === "AI" ? "live" : ""}`}>{it.badge}</span>}
-            </button>
-          ))}
+          {group.items.map(it => {
+            const badge = it.countKey && counts ? String(counts[it.countKey]) : it.badge;
+            return (
+              <button key={it.id} className={`nav-item ${active === it.id ? "active" : ""}`} onClick={() => onNav(it.id)}>
+                <span className="nav-icon"><Icon name={it.icon} size={15} /></span>
+                <span>{it.name}</span>
+                {badge && <span className={`nav-badge ${badge === "AI" ? "live" : ""}`}>{badge}</span>}
+              </button>
+            );
+          })}
         </div>
       ))}
       <div className="sidebar-footer">

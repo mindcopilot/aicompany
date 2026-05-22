@@ -10,9 +10,12 @@ const AGENT_COLOR: Record<string, string> = {
   Atlas: "#4f46e5", Nova: "#0891b2", Helix: "#9333ea", Aria: "#16a34a",
 };
 
+const successRate = (t: { tasks: number; success: number }): number =>
+  t.tasks > 0 ? Math.round(t.success / t.tasks * 100) : 0;
+
 export function AgentsView() {
   const { openDrawer, toast } = useUI();
-  const { data: agents } = useAsync(() => api.agents(), []);
+  const { data: agents, refresh: refreshAgents } = useAsync(() => api.agents(), []);
   const { data: runs }   = useAsync(() => api.runsToday(), []);
 
   return (
@@ -38,6 +41,12 @@ export function AgentsView() {
                 { name: "schedule", label: "调度方式", type: "select", options: ["常驻待命", "定时触发", "事件触发"] },
               ]}
               submitLabel="创建 Agent"
+              onSubmit={async v => {
+                await api.agentCreate({
+                  name: v.name!, role: v.role ?? "", schedule: v.schedule ?? "常驻待命",
+                });
+                await refreshAgents();
+              }}
               successMsg={v => `已创建 Agent「${v.name}」· 角色：${v.role}`}
             />,
           })}><Icon name="plus" size={14} /> 新增 Agent</button>
@@ -48,7 +57,7 @@ export function AgentsView() {
         <div className="agent-grid">
           {(agents ?? []).map(a => (
             <AgentCard key={a.id} a={a} onOpen={() => openDrawer({
-              eyebrow: `AGENT · ${a.role}`, title: a.name, sub: a.taskNow, body: <AgentDrawer a={a} />,
+              eyebrow: `AGENT · ${a.role}`, title: a.name, sub: a.taskNow, body: <AgentDrawer a={a} onChange={refreshAgents} />,
             })} />
           ))}
         </div>
@@ -139,7 +148,7 @@ function AgentCard({ a, onOpen }: { a: AgentProfile; onOpen: () => void }) {
 
       <div className="agent-foot">
         <div className="agent-foot-stat"><b className="mono">{a.today.tasks}</b><span className="muted text-xs">今日任务</span></div>
-        <div className="agent-foot-stat"><b className="mono">{Math.round(a.today.success / a.today.tasks * 100)}%</b><span className="muted text-xs">成功率</span></div>
+        <div className="agent-foot-stat"><b className="mono">{successRate(a.today)}%</b><span className="muted text-xs">成功率</span></div>
         <div className="agent-foot-stat"><b className="mono">{a.today.hours}h</b><span className="muted text-xs">总耗时</span></div>
         <button className="btn sm ghost" onClick={e => { e.stopPropagation(); toast(`已单步触发 ${a.name}`); }}><Icon name="play" size={11} /> 单步触发</button>
       </div>
@@ -147,12 +156,13 @@ function AgentCard({ a, onOpen }: { a: AgentProfile; onOpen: () => void }) {
   );
 }
 
-function AgentDrawer({ a }: { a: AgentProfile }) {
+function AgentDrawer({ a, onChange }: { a: AgentProfile; onChange: () => Promise<void> }) {
+  const { toast, closeDrawer } = useUI();
   return (
     <div>
       <div className="grid-3" style={{ gap: 8 }}>
         <SignalCell n={a.today.tasks} l="今日任务" />
-        <SignalCell n={`${Math.round(a.today.success / a.today.tasks * 100)}%`} l="成功率" />
+        <SignalCell n={`${successRate(a.today)}%`} l="成功率" />
         <SignalCell n={`${a.today.hours}h`} l="工作时长" />
       </div>
       <div className="mt-16">
@@ -170,6 +180,16 @@ function AgentDrawer({ a }: { a: AgentProfile }) {
       <div className="mt-16">
         <div className="muted text-xs mono" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>调度</div>
         <div style={{ fontSize: 13, marginTop: 6, color: "var(--text-2)" }}>{a.schedule}</div>
+      </div>
+      <div className="mt-16" style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button className="btn ghost" onClick={async () => {
+          try {
+            await api.agentRemove(a.id);
+            await onChange();
+            toast(`已解散 Agent「${a.name}」`, "warn");
+            closeDrawer();
+          } catch (e) { toast(`删除失败：${e instanceof Error ? e.message : String(e)}`, "warn"); }
+        }}><Icon name="x" size={12} /> 解散 Agent</button>
       </div>
     </div>
   );

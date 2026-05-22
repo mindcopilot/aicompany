@@ -602,6 +602,25 @@ export async function getWorkflowRun(id: string): Promise<WorkflowRun | null> {
   return rows[0] ? rowToRun(rows[0]) : null;
 }
 
+export async function listWorkflowRuns(opts?: {
+  status?: WorkflowStatus; workflowType?: string; limit?: number;
+}): Promise<WorkflowRun[]> {
+  const limit = Math.min(opts?.limit ?? 100, 300);
+  const where: string[] = [];
+  const values: unknown[] = [];
+  if (opts?.status)       { values.push(opts.status);       where.push(`status = $${values.length}`); }
+  if (opts?.workflowType) { values.push(opts.workflowType); where.push(`workflow_type = $${values.length}`); }
+  values.push(limit);
+  const { rows } = await query<WorkflowRunRow>(
+    `SELECT * FROM workflow_runs
+     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY started_at DESC
+     LIMIT $${values.length}`,
+    values
+  );
+  return rows.map(rowToRun);
+}
+
 export async function appendWorkflowEvent(input: {
   workflowId: string; kind: string; activity?: string | null;
   message?: string | null; payload?: unknown;
@@ -630,6 +649,161 @@ export async function listWorkflowEvents(workflowId: string, limit = 50): Promis
     id: String(r.id), ts: r.ts.toISOString(),
     kind: r.kind, activity: r.activity, message: r.message, payload: r.payload,
   }));
+}
+
+// ============================================================================
+// AI assets CRUD — knowledge / prompts / skills / agents / automations.
+// These power the "AI 资产" module so entries created in the UI persist.
+// ============================================================================
+
+function genId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+async function nextPosition(table: "knowledge" | "prompts" | "skills" | "agents" | "automations"): Promise<number> {
+  const { rows } = await query<{ max_pos: number | null }>(`SELECT MAX(position) AS max_pos FROM ${table}`);
+  return (rows[0]?.max_pos ?? -1) + 1;
+}
+
+export async function createKnowledge(input: {
+  kind: KnowledgeItem["kind"]; title: string; snippet: string; tags?: string[]; source?: string;
+}): Promise<KnowledgeItem> {
+  const id = genId("k");
+  const position = await nextPosition("knowledge");
+  await query(
+    `INSERT INTO knowledge (id, kind, title, snippet, tags, refs, agent, time, source, position)
+     VALUES ($1,$2,$3,$4,$5::jsonb,0,'Helix','刚刚',$6,$7)`,
+    [id, input.kind, input.title, input.snippet, JSON.stringify(input.tags ?? []), input.source ?? "手动录入", position]
+  );
+  return {
+    id, kind: input.kind, title: input.title, snippet: input.snippet,
+    tags: input.tags ?? [], refs: 0, agent: "Helix", time: "刚刚", source: input.source ?? "手动录入",
+  };
+}
+
+export async function deleteKnowledge(id: string): Promise<boolean> {
+  const { rowCount } = await query(`DELETE FROM knowledge WHERE id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+export async function createPrompt(input: {
+  name: string; cat: string; body: string; vars?: string[]; desc?: string;
+}): Promise<PromptItem> {
+  const id = genId("p");
+  const position = await nextPosition("prompts");
+  const vars = input.vars ?? [];
+  const desc = input.desc ?? "用户创建的 prompt。";
+  await query(
+    `INSERT INTO prompts (id, name, cat, version, calls, success, description, vars, used_by, body, position)
+     VALUES ($1,$2,$3,'v1.0',0,0,$4,$5::jsonb,'[]'::jsonb,$6,$7)`,
+    [id, input.name, input.cat, desc, JSON.stringify(vars), input.body, position]
+  );
+  return { id, name: input.name, cat: input.cat, version: "v1.0", calls: 0, success: 0,
+    desc, vars, usedBy: [], body: input.body };
+}
+
+export async function deletePrompt(id: string): Promise<boolean> {
+  const { rowCount } = await query(`DELETE FROM prompts WHERE id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+export async function createSkill(input: {
+  name: string; cat: string; input: string; output: string; desc?: string; emoji?: string;
+}): Promise<SkillItem> {
+  const id = genId("s");
+  const position = await nextPosition("skills");
+  const desc = input.desc ?? "用户注册的 Skill。";
+  const emoji = input.emoji ?? "🧩";
+  await query(
+    `INSERT INTO skills (id, name, emoji, cat, description, tools, input, output, calls, success, agents, position)
+     VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,$6,$7,0,0,'[]'::jsonb,$8)`,
+    [id, input.name, emoji, input.cat, desc, input.input, input.output, position]
+  );
+  return { id, name: input.name, emoji, cat: input.cat, desc, tools: [],
+    input: input.input, output: input.output, calls: 0, success: 0, agents: [] };
+}
+
+export async function deleteSkill(id: string): Promise<boolean> {
+  const { rowCount } = await query(`DELETE FROM skills WHERE id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+export async function createAgent(input: {
+  name: string; role: string; schedule: string;
+}): Promise<AgentProfile> {
+  const id = genId("ag");
+  const position = await nextPosition("agents");
+  const palette = ["#4f46e5", "#0891b2", "#9333ea", "#16a34a", "#ea580c", "#0d9488"];
+  const color = palette[position % palette.length]!;
+  const today = { tasks: 0, success: 0, hours: 0 };
+  await query(
+    `INSERT INTO agents (id, name, role, color, mood, busy, task_now, skills, prompts, sources, schedule, today, position)
+     VALUES ($1,$2,$3,$4,'待命',FALSE,'待命中','[]'::jsonb,'[]'::jsonb,'[]'::jsonb,$5,$6::jsonb,$7)`,
+    [id, input.name, input.role, color, input.schedule, JSON.stringify(today), position]
+  );
+  return { id, name: input.name as AgentProfile["name"], role: input.role, color, mood: "待命",
+    busy: false, taskNow: "待命中", skills: [], prompts: [], sources: [], schedule: input.schedule, today };
+}
+
+export async function deleteAgent(id: string): Promise<boolean> {
+  const { rowCount } = await query(`DELETE FROM agents WHERE id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+export async function createAutomation(input: {
+  name: string; trigger: { kind: string; text: string }; steps: Automation["steps"];
+}): Promise<Automation> {
+  const id = genId("a");
+  const position = await nextPosition("automations");
+  await query(
+    `INSERT INTO automations (id, name, is_on, runs, last_run, trigger, steps, saved, position)
+     VALUES ($1,$2,FALSE,0,'未启用',$3::jsonb,$4::jsonb,'草稿中',$5)`,
+    [id, input.name, JSON.stringify(input.trigger), JSON.stringify(input.steps), position]
+  );
+  return { id, name: input.name, on: false, runs: 0, lastRun: "未启用",
+    trigger: input.trigger, steps: input.steps, saved: "草稿中" };
+}
+
+export async function setAutomationOn(id: string, on: boolean): Promise<Automation | null> {
+  const { rows } = await query<{
+    id: string; name: string; is_on: boolean; runs: number; last_run: string;
+    trigger: Automation["trigger"]; steps: Automation["steps"]; saved: string;
+  }>(
+    `UPDATE automations SET is_on = $2 WHERE id = $1
+     RETURNING id, name, is_on, runs, last_run, trigger, steps, saved`,
+    [id, on]
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return { id: r.id, name: r.name, on: r.is_on, runs: r.runs, lastRun: r.last_run,
+    trigger: r.trigger, steps: r.steps, saved: r.saved };
+}
+
+export async function deleteAutomation(id: string): Promise<boolean> {
+  const { rowCount } = await query(`DELETE FROM automations WHERE id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+export interface AssetCounts {
+  knowledge: number; prompts: number; skills: number; agents: number; automations: number;
+}
+
+export async function getAssetCounts(): Promise<AssetCounts> {
+  const { rows } = await query<{
+    knowledge: string; prompts: string; skills: string; agents: string; automations: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM knowledge)   AS knowledge,
+       (SELECT count(*) FROM prompts)     AS prompts,
+       (SELECT count(*) FROM skills)      AS skills,
+       (SELECT count(*) FROM agents)      AS agents,
+       (SELECT count(*) FROM automations) AS automations`
+  );
+  const r = rows[0]!;
+  return {
+    knowledge: Number(r.knowledge), prompts: Number(r.prompts), skills: Number(r.skills),
+    agents: Number(r.agents), automations: Number(r.automations),
+  };
 }
 
 export async function getLibrary(): Promise<LibraryItem[]> {

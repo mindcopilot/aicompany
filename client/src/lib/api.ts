@@ -3,9 +3,10 @@ import type {
   KnowledgeItem, PromptItem, SkillItem, AgentProfile, AgentRun, Automation,
   ContentTrack, ContentJob, ModelMatrix, LibraryItem, CopilotMessage,
   AuthSession, SendCodeResp, QrSceneResp, WechatPoll,
-  WorkflowStartResp, WorkflowGetResp,
+  WorkflowStartResp, WorkflowGetResp, WorkflowRun, WorkflowStatus,
   MyDirection, TrendingDirection, DirectionValidation,
   BusinessDesign, DeliveryTicket, DeliveryTarget, DeliveryStatus,
+  FounderProfile, AssetCounts,
 } from "../types/api";
 
 const TOKEN_KEY = "lumenedu.token.v1";
@@ -40,7 +41,10 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 async function del<T>(path: string): Promise<T> {
   return mutate<T>("DELETE", path);
 }
-async function mutate<T>(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
+async function put<T>(path: string, body: unknown): Promise<T> {
+  return mutate<T>("PUT", path, body);
+}
+async function mutate<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -73,10 +77,45 @@ export const api = {
   copilotInit:  () => get<CopilotMessage[]>("/copilot/init"),
   copilotSend:  (text: string) => post<CopilotMessage>("/copilot/message", { text }),
 
+  knowledgeCreate: (body: { title: string; kind: string; content: string; tags?: string }) =>
+                    post<KnowledgeItem>("/knowledge", body),
+  knowledgeRemove: (id: string) => del<{ ok: true }>(`/knowledge/${encodeURIComponent(id)}`),
+
+  promptCreate: (body: { name: string; cat: string; body: string }) =>
+                  post<PromptItem>("/prompts", body),
+  promptRemove: (id: string) => del<{ ok: true }>(`/prompts/${encodeURIComponent(id)}`),
+
+  skillCreate: (body: { name: string; cat: string; input: string; output: string }) =>
+                 post<SkillItem>("/skills", body),
+  skillRemove: (id: string) => del<{ ok: true }>(`/skills/${encodeURIComponent(id)}`),
+
+  agentCreate: (body: { name: string; role: string; schedule: string }) =>
+                 post<AgentProfile>("/agents", body),
+  agentRemove: (id: string) => del<{ ok: true }>(`/agents/${encodeURIComponent(id)}`),
+
+  automationCreate: (body: { name: string; trigger: string; action: string }) =>
+                       post<Automation>("/automations", body),
+  automationSetOn: (id: string, on: boolean) =>
+                       patch<Automation>(`/automations/${encodeURIComponent(id)}`, { on }),
+  automationRemove: (id: string) => del<{ ok: true }>(`/automations/${encodeURIComponent(id)}`),
+
+  assetCounts: () => get<AssetCounts>("/asset-counts"),
+
   workflows: {
     scanDirections: (thesis?: string) =>
       post<WorkflowStartResp>("/workflows/scan-directions", thesis ? { thesis } : {}),
     get: (id: string) => get<WorkflowGetResp>(`/workflows/${encodeURIComponent(id)}`),
+  },
+
+  workflowRuns: {
+    list: (status?: WorkflowStatus) =>
+            get<WorkflowRun[]>(`/workflow-runs${status ? `?status=${status}` : ""}`),
+    get:  (id: string) => get<WorkflowGetResp>(`/workflow-runs/${encodeURIComponent(id)}`),
+  },
+
+  founderProfile: {
+    get:  () => get<FounderProfile | null>("/founder-profile"),
+    save: (p: FounderProfile) => put<FounderProfile>("/founder-profile", p),
   },
 
   myDirections: {
