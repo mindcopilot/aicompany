@@ -602,6 +602,25 @@ export async function getWorkflowRun(id: string): Promise<WorkflowRun | null> {
   return rows[0] ? rowToRun(rows[0]) : null;
 }
 
+export async function listWorkflowRuns(opts?: {
+  status?: WorkflowStatus; workflowType?: string; limit?: number;
+}): Promise<WorkflowRun[]> {
+  const limit = Math.min(opts?.limit ?? 100, 300);
+  const where: string[] = [];
+  const values: unknown[] = [];
+  if (opts?.status)       { values.push(opts.status);       where.push(`status = $${values.length}`); }
+  if (opts?.workflowType) { values.push(opts.workflowType); where.push(`workflow_type = $${values.length}`); }
+  values.push(limit);
+  const { rows } = await query<WorkflowRunRow>(
+    `SELECT * FROM workflow_runs
+     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY started_at DESC
+     LIMIT $${values.length}`,
+    values
+  );
+  return rows.map(rowToRun);
+}
+
 export async function appendWorkflowEvent(input: {
   workflowId: string; kind: string; activity?: string | null;
   message?: string | null; payload?: unknown;

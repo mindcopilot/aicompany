@@ -9,12 +9,23 @@ import {
   createSkill, deleteSkill,
   createAgent, deleteAgent,
   createAutomation, setAutomationOn, deleteAutomation,
+  listWorkflowRuns, getWorkflowRun, listWorkflowEvents,
+  getFounderProfile, saveFounderProfile,
 } from "../db/queries.js";
-import type { KnowledgeItem } from "../types.js";
+import type { KnowledgeItem, WorkflowStatus, FounderProfile } from "../types.js";
 import { runCopilotTurn } from "../copilot.js";
 import { bearerToken, getSessionByToken } from "../auth.js";
 
 const router = Router();
+
+async function resolveUserId(req: import("express").Request): Promise<string> {
+  const t = bearerToken(req);
+  if (t) {
+    const s = await getSessionByToken(t);
+    if (s) return s.user.id;
+  }
+  return "user-lin-huan";
+}
 
 router.get("/company", async (_req, res, next) => {
   try { res.json(await getCompany()); } catch (e) { next(e); }
@@ -199,6 +210,61 @@ router.delete("/automations/:id", async (req, res, next) => {
     const ok = await deleteAutomation(req.params.id!);
     if (!ok) { res.status(404).json({ error: "not found" }); return; }
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Workflow runs — observability for the Temporal-backed agent workflows.
+// ---------------------------------------------------------------------------
+
+const WORKFLOW_STATUSES: WorkflowStatus[] = ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"];
+
+router.get("/workflow-runs", async (req, res, next) => {
+  try {
+    const statusParam = typeof req.query.status === "string" ? req.query.status : undefined;
+    const status = statusParam && WORKFLOW_STATUSES.includes(statusParam as WorkflowStatus)
+      ? (statusParam as WorkflowStatus) : undefined;
+    const typeParam = typeof req.query.type === "string" && req.query.type ? req.query.type : undefined;
+    res.json(await listWorkflowRuns({ status, workflowType: typeParam, limit: 150 }));
+  } catch (e) { next(e); }
+});
+
+router.get("/workflow-runs/:id", async (req, res, next) => {
+  try {
+    const run = await getWorkflowRun(req.params.id!);
+    if (!run) { res.status(404).json({ error: "not found" }); return; }
+    const events = await listWorkflowEvents(run.id, 200);
+    res.json({ run, events });
+  } catch (e) { next(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Founder profile — account / settings.
+// ---------------------------------------------------------------------------
+
+router.get("/founder-profile", async (req, res, next) => {
+  try {
+    const userId = await resolveUserId(req);
+    res.json(await getFounderProfile(userId));
+  } catch (e) { next(e); }
+});
+
+router.put("/founder-profile", async (req, res, next) => {
+  try {
+    const b = req.body as Partial<FounderProfile> | undefined;
+    const interests = Array.isArray(b?.interests)
+      ? b!.interests.filter((x): x is string => typeof x === "string") : [];
+    const profile: FounderProfile = {
+      tags:      String(b?.tags ?? "").trim(),
+      hours:     String(b?.hours ?? "").trim(),
+      capital:   String(b?.capital ?? "").trim(),
+      risk:      String(b?.risk ?? "").trim(),
+      interests,
+      ...(typeof b?.thesis === "string" && b.thesis.trim() ? { thesis: b.thesis.trim() } : {}),
+    };
+    const userId = await resolveUserId(req);
+    await saveFounderProfile(userId, profile);
+    res.json(profile);
   } catch (e) { next(e); }
 });
 

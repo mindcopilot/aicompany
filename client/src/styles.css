@@ -283,6 +283,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .tag.warn { background: rgba(217,119,6,0.1); color: var(--warn); }
 .tag.accent { background: var(--accent-soft); color: var(--accent); }
 .tag.ai { background: var(--ai-soft); color: var(--ai); }
+.tag.danger { background: rgba(220,38,38,0.1); color: var(--danger); }
 .tag .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 
 /* ===== AI Digest ===== */

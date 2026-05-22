@@ -6,7 +6,8 @@ export type ViewId =
   | "direction"
   | "product" | "content" | "traffic" | "reach"
   | "data"
-  | "models" | "knowledge" | "prompts" | "skills" | "agents" | "automations";
+  | "models" | "knowledge" | "prompts" | "skills" | "agents" | "automations"
+  | "runs" | "settings";
 
 export interface NavItem { id: ViewId; name: string; icon: string; badge?: string | null; }
 export interface NavGroup { group: string; items: NavItem[]; }
@@ -34,6 +35,10 @@ export const NAV: NavGroup[] = [
     { id: "skills",      name: "Skills",     icon: "bolt", badge: "14" },
     { id: "agents",      name: "Agent 编排", icon: "git",  badge: "AI" },
     { id: "automations", name: "自动化",     icon: "zap",  badge: "4" },
+  ]},
+  { group: "系统 · SYSTEM", items: [
+    { id: "runs",     name: "运行记录", icon: "activity", badge: null },
+    { id: "settings", name: "设置",     icon: "settings", badge: null },
   ]},
 ];
 
@@ -75,8 +80,10 @@ export function Topbar({
       </button>
       <div className="topbar-right">
         <button className="icon-btn"><Icon name="bell" size={16} /><span className="dot" /></button>
-        <button className="icon-btn"><Icon name="settings" size={16} /></button>
-        <UserMenu />
+        <button className="icon-btn" title="设置" onClick={() => onNav("settings")}>
+          <Icon name="settings" size={16} />
+        </button>
+        <UserMenu onNav={onNav} />
       </div>
     </div>
   );

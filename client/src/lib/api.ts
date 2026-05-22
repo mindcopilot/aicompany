@@ -3,9 +3,10 @@ import type {
   KnowledgeItem, PromptItem, SkillItem, AgentProfile, AgentRun, Automation,
   ContentTrack, ContentJob, ModelMatrix, LibraryItem, CopilotMessage,
   AuthSession, SendCodeResp, QrSceneResp, WechatPoll,
-  WorkflowStartResp, WorkflowGetResp,
+  WorkflowStartResp, WorkflowGetResp, WorkflowRun, WorkflowStatus,
   MyDirection, TrendingDirection, DirectionValidation,
   BusinessDesign, DeliveryTicket, DeliveryTarget, DeliveryStatus,
+  FounderProfile,
 } from "../types/api";
 
 const TOKEN_KEY = "lumenedu.token.v1";
@@ -99,6 +100,17 @@ export const api = {
     scanDirections: (thesis?: string) =>
       post<WorkflowStartResp>("/workflows/scan-directions", thesis ? { thesis } : {}),
     get: (id: string) => get<WorkflowGetResp>(`/workflows/${encodeURIComponent(id)}`),
+  },
+
+  workflowRuns: {
+    list: (status?: WorkflowStatus) =>
+            get<WorkflowRun[]>(`/workflow-runs${status ? `?status=${status}` : ""}`),
+    get:  (id: string) => get<WorkflowGetResp>(`/workflow-runs/${encodeURIComponent(id)}`),
+  },
+
+  founderProfile: {
+    get:  () => get<FounderProfile | null>("/founder-profile"),
+    save: (p: FounderProfile) => mutate<FounderProfile>("PUT", "/founder-profile", p),
   },
 
   myDirections: {

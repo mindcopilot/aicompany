@@ -273,6 +273,15 @@ export interface DeliveryTicket {
 // Workflow runs
 // ============================================================================
 
+export interface FounderProfile {
+  tags: string;
+  hours: string;
+  capital: string;
+  risk: string;
+  interests: string[];
+  thesis?: string;
+}
+
 export type WorkflowStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 export interface WorkflowRun {

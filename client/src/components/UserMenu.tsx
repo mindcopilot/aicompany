@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { useAuth } from "../lib/auth";
+import type { ViewId } from "./Shell";
 
-export function UserMenu() {
+export function UserMenu({ onNav }: { onNav?: (id: ViewId) => void }) {
   const { user, session, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -43,11 +44,11 @@ export function UserMenu() {
             </div>
           </div>
           <div className="user-menu-divider" />
-          <button className="user-menu-item">
+          <button className="user-menu-item" onClick={() => { setOpen(false); onNav?.("settings"); }}>
             <Icon name="settings" size={13} /> <span>账户设置</span>
           </button>
-          <button className="user-menu-item">
-            <Icon name="bell" size={13} /> <span>通知偏好</span>
+          <button className="user-menu-item" onClick={() => { setOpen(false); onNav?.("runs"); }}>
+            <Icon name="activity" size={13} /> <span>运行记录</span>
           </button>
           <div className="user-menu-divider" />
           <button className="user-menu-item danger" onClick={() => void signOut()}>

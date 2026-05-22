@@ -20,6 +20,8 @@ import { PromptsView } from "./views/Prompts";
 import { SkillsView } from "./views/Skills";
 import { AgentsView } from "./views/Agents";
 import { AutomationsView } from "./views/Automations";
+import { RunsView } from "./views/Runs";
+import { SettingsView } from "./views/Settings";
 import { Login } from "./views/Login";
 
 import { api } from "./lib/api";
@@ -91,6 +93,8 @@ function AuthedApp() {
         {active === "skills"      && <SkillsView />}
         {active === "agents"      && <AgentsView />}
         {active === "automations" && <AutomationsView />}
+        {active === "runs"        && <RunsView />}
+        {active === "settings"    && <SettingsView />}
       </main>
 
       {!copilotOpen && (
