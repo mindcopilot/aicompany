@@ -212,6 +212,64 @@ export interface DirectionValidation {
 }
 
 // ============================================================================
+// 业务线上化 · AI design + downstream delivery
+// ============================================================================
+
+export type DesignKind = "operations" | "traffic";
+export type DesignStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+export type DeliveryTarget = "content" | "traffic";
+
+export interface DesignDeliverable {
+  target: DeliveryTarget;
+  title: string;
+  detail: string;
+}
+
+export interface OperationsDesign {
+  summary: string;
+  lifecycle: { stage: string; goal: string; tactics: string[] }[];
+  cadence: { name: string; frequency: string; owner: string; detail: string }[];
+  retentionLevers: { lever: string; mechanism: string }[];
+  northStar: { metric: string; target: string; rationale: string };
+  deliverables: DesignDeliverable[];
+}
+
+export interface TrafficDesign {
+  summary: string;
+  channels: { channel: string; fit: string; priority: "high" | "medium" | "low"; cacEstimate: string }[];
+  tactics: { channel: string; tactic: string; expectedResult: string }[];
+  funnel: { stage: string; action: string; metric: string }[];
+  budgetSplit: { item: string; pct: number }[];
+  deliverables: DesignDeliverable[];
+}
+
+export type DesignResult = OperationsDesign | TrafficDesign;
+
+export interface BusinessDesign {
+  directionId: string;
+  kind: DesignKind;
+  status: DesignStatus;
+  workflowId: string | null;
+  result: DesignResult | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export type DeliveryStatus = "pending" | "in_progress" | "done";
+
+export interface DeliveryTicket {
+  id: string;
+  directionId: string;
+  target: DeliveryTarget;
+  sourceKind: DesignKind;
+  title: string;
+  detail: string | null;
+  status: DeliveryStatus;
+  createdAt: string;
+}
+
+// ============================================================================
 // Workflow runs
 // ============================================================================
 

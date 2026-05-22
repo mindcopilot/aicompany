@@ -321,3 +321,38 @@ CREATE TABLE IF NOT EXISTS direction_validations (
   PRIMARY KEY (direction_id, kind)
 );
 CREATE INDEX IF NOT EXISTS direction_validations_wf_idx ON direction_validations(workflow_id);
+
+-- ============================================================================
+-- 业务线上化 · AI-generated design + downstream delivery
+-- ============================================================================
+
+-- AI-generated business design for one direction. Two kinds run in parallel:
+-- 'operations' (产品运营体系) and 'traffic' (流量获取手段). One (direction, kind)
+-- row per most-recent run; re-designing overwrites.
+CREATE TABLE IF NOT EXISTS business_designs (
+  direction_id  TEXT NOT NULL REFERENCES my_directions(id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL CHECK (kind IN ('operations','traffic')),
+  status        TEXT NOT NULL CHECK (status IN ('PENDING','RUNNING','COMPLETED','FAILED')),
+  workflow_id   TEXT,
+  result        JSONB,
+  error         TEXT,
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at   TIMESTAMPTZ,
+  PRIMARY KEY (direction_id, kind)
+);
+CREATE INDEX IF NOT EXISTS business_designs_wf_idx ON business_designs(workflow_id);
+
+-- Delivery tickets handed off from 业务线上化 design to the execution modules
+-- (内容工厂 / 流量分发). Regenerated each time the producing design re-runs.
+CREATE TABLE IF NOT EXISTS delivery_tickets (
+  id            TEXT PRIMARY KEY,
+  direction_id  TEXT NOT NULL REFERENCES my_directions(id) ON DELETE CASCADE,
+  target        TEXT NOT NULL CHECK (target IN ('content','traffic')),
+  source_kind   TEXT NOT NULL CHECK (source_kind IN ('operations','traffic')),
+  title         TEXT NOT NULL,
+  detail        TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','done')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS delivery_tickets_target_idx ON delivery_tickets(target, created_at DESC);
+CREATE INDEX IF NOT EXISTS delivery_tickets_dir_idx ON delivery_tickets(direction_id);

@@ -1,16 +1,94 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
 import { AgentTag, SignalCell, th, td } from "../components/primitives";
 import { BarChart } from "../components/Charts";
 import { CreateForm } from "../components/CreateForm";
+import { WorkflowProgress } from "../components/WorkflowProgress";
+import { OperationsDesignView, TrafficDesignView } from "../components/BusinessDesignView";
 import { useAsync } from "../hooks/useApi";
 import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
+import type { BusinessDesign, DesignKind, WorkflowRun } from "../types/api";
 
-export function ProductView() {
+interface Props {
+  /** Direction handed off from 方向 once its 4-维 validation passes. */
+  directionId: string | null;
+}
+
+const SECTION_DEFS = [
+  { id: "operations", name: "运营体系设计", icon: "users" },
+  { id: "traffic",    name: "流量获取设计", icon: "radio" },
+  { id: "system",     name: "线上系统",     icon: "layers" },
+] as const;
+type SectionId = (typeof SECTION_DEFS)[number]["id"];
+
+export function ProductView({ directionId }: Props) {
   const { toast } = useUI();
-  const { data: pipeline } = useAsync(() => api.pipeline(), []);
-  const [stage, setStage] = useState<"define" | "landing" | "course" | "pay" | "support">("course");
+  const { data: dirData } = useAsync(() => api.myDirections.list(), []);
+  const directions = useMemo(() => dirData ?? [], [dirData]);
+
+  const [currentId, setCurrentId] = useState<string | null>(directionId);
+  const [section, setSection] = useState<SectionId>("operations");
+  const [designs, setDesigns] = useState<BusinessDesign[]>([]);
+  const [designWfId, setDesignWfId] = useState<string | null>(null);
+  const [startingDesign, setStartingDesign] = useState(false);
+
+  // Pick up a handoff; fall back to the first direction once the list loads.
+  useEffect(() => { if (directionId) setCurrentId(directionId); }, [directionId]);
+  useEffect(() => {
+    if (!currentId && directions.length > 0) setCurrentId(directions[0]!.id);
+  }, [currentId, directions]);
+
+  const current = directions.find(d => d.id === currentId) ?? null;
+
+  const loadDesigns = useCallback(async (): Promise<void> => {
+    if (!currentId) { setDesigns([]); return; }
+    try { setDesigns(await api.myDirections.designs(currentId)); }
+    catch { /* keep last good state on a transient error */ }
+  }, [currentId]);
+
+  useEffect(() => { void loadDesigns(); }, [loadDesigns]);
+
+  const designByKind = useMemo(() => {
+    const m: Partial<Record<DesignKind, BusinessDesign>> = {};
+    for (const d of designs) m[d.kind] = d;
+    return m;
+  }, [designs]);
+
+  const designing = startingDesign || designs.some(d => d.status === "RUNNING" || d.status === "PENDING");
+  const doneCount = designs.filter(d => d.status === "COMPLETED").length;
+
+  // Poll designs while a run is in flight so the tabs fill in live.
+  useEffect(() => {
+    if (!designing) return;
+    const i = window.setInterval(() => void loadDesigns(), 1800);
+    return () => window.clearInterval(i);
+  }, [designing, loadDesigns]);
+
+  const startDesign = useCallback(async (): Promise<void> => {
+    if (!currentId) return;
+    setStartingDesign(true);
+    try {
+      const { workflowId } = await api.myDirections.design(currentId);
+      setDesignWfId(workflowId);
+      toast("Helix 已启动业务线上化设计 · 运营体系 + 流量获取并行");
+      void loadDesigns();
+    } catch (e) {
+      setStartingDesign(false);
+      toast(`设计启动失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [currentId, loadDesigns, toast]);
+
+  const onDesignTerminal = useCallback((run: WorkflowRun) => {
+    setStartingDesign(false);
+    if (run.status === "COMPLETED") {
+      const out = run.output as { ticketsCreated?: number } | null;
+      toast(`线上化设计完成 · 交付 ${out?.ticketsCreated ?? 0} 张工单到内容工厂 / 流量分发`);
+    } else {
+      toast(`设计 ${run.status}${run.error ? "：" + run.error : ""}`);
+    }
+    void loadDesigns();
+  }, [loadDesigns, toast]);
 
   return (
     <>
@@ -18,45 +96,121 @@ export function ProductView() {
         <div className="title-wrap">
           <div className="module-eyebrow">03 · BUSINESS DIGITALIZATION</div>
           <h1 className="module-title">业务线上化</h1>
-          <div className="module-sub">从产品定义到交付的完整 pipeline · AI Agent 协助产出每个环节。</div>
+          <div className="module-sub">承接论证通过的方向 · Helix 设计运营体系与流量获取手段 · 交付给内容工厂和流量分发执行。</div>
         </div>
         <div className="module-actions">
-          <span className="tag ai"><span className="dot" /> Nova 起草中</span>
-          <button className="btn" onClick={() => toast("已切换到用户视角预览")}><Icon name="eye" size={14} /> 用户视角预览</button>
-          <button className="btn primary" onClick={() => toast("发布流程已启动 · Nova 正在核对 14 项发布清单")}><Icon name="rocket" size={14} /> 发布到生产</button>
+          <span className="tag ai"><span className="dot" /> Helix 设计中心</span>
         </div>
       </div>
 
       <div className="module-body">
+        {/* ---- 当前方向 + design control ---- */}
         <div className="module-section">
-          <div className="section-head">
-            <div className="section-title">交付 PIPELINE · 5 阶段</div>
-            <span className="muted text-xs">整体完成度 <strong className="mono" style={{ color: "var(--text)" }}>62%</strong> · 距首发 14 天</span>
-          </div>
-          <div className="pipeline">
-            {(pipeline ?? []).map(p => (
-              <div key={p.key} className={`pipeline-stage ${p.status}`} onClick={() => setStage(p.key)}
-                style={stage === p.key ? { borderColor: "var(--text)", boxShadow: "0 0 0 3px var(--bg-mute)" } : { cursor: "pointer" }}>
-                <div className="step">STAGE {p.step}</div>
-                <h5>{p.title}</h5>
-                <div className="desc">{p.desc}</div>
-                <div className="status">
-                  {p.status === "done"    && <span className="tag success"><Icon name="check" size={10} stroke={2} /> {p.meta}</span>}
-                  {p.status === "current" && <span className="tag accent"><span className="dot" /> {p.meta}</span>}
-                  {p.status === "pending" && <span className="tag">{p.meta}</span>}
-                </div>
+          {directions.length === 0 ? (
+            <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
+              还没有方向。先去「方向」录入一条并完成 4 维论证，再回到这里做线上化设计。
+            </div>
+          ) : (
+            <div className="card" style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ width: 34, height: 34, borderRadius: 8, background: "var(--accent-soft)", color: "var(--accent)", display: "grid", placeItems: "center", flexShrink: 0 }}>
+                <Icon name="compass" size={17} />
+              </span>
+              <div style={{ minWidth: 200 }}>
+                <div className="muted text-xs" style={{ marginBottom: 3 }}>当前方向</div>
+                <select
+                  value={currentId ?? ""}
+                  onChange={e => { setCurrentId(e.target.value); setDesignWfId(null); }}
+                  style={{
+                    fontSize: 14, fontWeight: 500, padding: "5px 8px",
+                    border: "1px solid var(--border)", borderRadius: 7,
+                    background: "var(--bg)", color: "var(--text)", maxWidth: 320,
+                  }}>
+                  {directions.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
+                </select>
               </div>
-            ))}
-          </div>
+              {current?.description && (
+                <div style={{ flex: 1, minWidth: 200, fontSize: 12.5, color: "var(--text-3)", lineHeight: 1.5 }}>
+                  {current.description}
+                </div>
+              )}
+              <button className="btn primary" onClick={startDesign} disabled={designing || !currentId}>
+                <Icon name={designing ? "refresh" : "sparkle"} size={14} />
+                {designing ? "设计中…" : doneCount > 0 ? "重新设计" : "开始 AI 设计"}
+              </button>
+            </div>
+          )}
+
+          {designWfId && (
+            <div style={{ marginTop: 12 }}>
+              <WorkflowProgress workflowId={designWfId} onTerminal={onDesignTerminal} />
+            </div>
+          )}
         </div>
 
+        {/* ---- section tabs ---- */}
         <div className="module-section">
-          {stage === "define"  && <DefineStage />}
-          {stage === "landing" && <LandingStage />}
-          {stage === "course"  && <CourseStage />}
-          {stage === "pay"     && <PayStage />}
-          {stage === "support" && <SupportStage />}
+          <div className="tabs">
+            {SECTION_DEFS.map(s => {
+              const design = s.id === "operations" ? designByKind.operations
+                : s.id === "traffic" ? designByKind.traffic : undefined;
+              const mark =
+                s.id === "system" ? "" :
+                design?.status === "COMPLETED" ? "✓" :
+                design?.status === "RUNNING" || design?.status === "PENDING" ? "…" :
+                design?.status === "FAILED" ? "!" : "—";
+              return (
+                <button key={s.id} className={`tab ${section === s.id ? "active" : ""}`} onClick={() => setSection(s.id)}>
+                  {s.name}{mark && <span className="count">{mark}</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-12">
+            {section === "operations" && <OperationsDesignView design={designByKind.operations} />}
+            {section === "traffic"    && <TrafficDesignView design={designByKind.traffic} />}
+            {section === "system"     && <OnlineSystemSection />}
+          </div>
         </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
+// 线上系统 — the build pipeline (define → landing → course → pay → support).
+// ============================================================================
+
+function OnlineSystemSection() {
+  const { data: pipeline } = useAsync(() => api.pipeline(), []);
+  const [stage, setStage] = useState<"define" | "landing" | "course" | "pay" | "support">("course");
+  return (
+    <>
+      <div className="section-head">
+        <div className="section-title">交付 PIPELINE · 5 阶段</div>
+        <span className="muted text-xs">整体完成度 <strong className="mono" style={{ color: "var(--text)" }}>62%</strong> · 距首发 14 天</span>
+      </div>
+      <div className="pipeline">
+        {(pipeline ?? []).map(p => (
+          <div key={p.key} className={`pipeline-stage ${p.status}`} onClick={() => setStage(p.key)}
+            style={stage === p.key ? { borderColor: "var(--text)", boxShadow: "0 0 0 3px var(--bg-mute)" } : { cursor: "pointer" }}>
+            <div className="step">STAGE {p.step}</div>
+            <h5>{p.title}</h5>
+            <div className="desc">{p.desc}</div>
+            <div className="status">
+              {p.status === "done"    && <span className="tag success"><Icon name="check" size={10} stroke={2} /> {p.meta}</span>}
+              {p.status === "current" && <span className="tag accent"><span className="dot" /> {p.meta}</span>}
+              {p.status === "pending" && <span className="tag">{p.meta}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 16 }}>
+        {stage === "define"  && <DefineStage />}
+        {stage === "landing" && <LandingStage />}
+        {stage === "course"  && <CourseStage />}
+        {stage === "pay"     && <PayStage />}
+        {stage === "support" && <SupportStage />}
       </div>
     </>
   );

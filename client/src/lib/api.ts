@@ -5,6 +5,7 @@ import type {
   AuthSession, SendCodeResp, QrSceneResp, WechatPoll,
   WorkflowStartResp, WorkflowGetResp,
   MyDirection, TrendingDirection, DirectionValidation,
+  BusinessDesign, DeliveryTicket, DeliveryTarget, DeliveryStatus,
 } from "../types/api";
 
 const TOKEN_KEY = "lumenedu.token.v1";
@@ -88,12 +89,20 @@ export const api = {
     evaluate:(id: string) => post<WorkflowStartResp>(`/my-directions/${encodeURIComponent(id)}/evaluate`, {}),
     validate:(id: string) => post<WorkflowStartResp>(`/my-directions/${encodeURIComponent(id)}/validate`, {}),
     validations: (id: string) => get<DirectionValidation[]>(`/my-directions/${encodeURIComponent(id)}/validations`),
+    design:  (id: string) => post<WorkflowStartResp>(`/my-directions/${encodeURIComponent(id)}/design`, {}),
+    designs: (id: string) => get<BusinessDesign[]>(`/my-directions/${encodeURIComponent(id)}/designs`),
     fromTrending: (trendingId: string) =>
               post<MyDirection>(`/my-directions/from-trending/${encodeURIComponent(trendingId)}`, {}),
   },
   trendingDirections: {
     list:    () => get<TrendingDirection[]>("/trending-directions"),
     refresh: () => post<WorkflowStartResp>("/trending-directions/refresh", {}),
+  },
+  deliveryTickets: {
+    list:   (target?: DeliveryTarget) =>
+              get<DeliveryTicket[]>(`/delivery-tickets${target ? `?target=${target}` : ""}`),
+    update: (id: string, status: DeliveryStatus) =>
+              patch<DeliveryTicket>(`/delivery-tickets/${encodeURIComponent(id)}`, { status }),
   },
 
   auth: {

@@ -6,6 +6,8 @@ import type {
   FounderProfile, WorkflowRun, WorkflowEvent, WorkflowStatus,
   MyDirection, TrendingDirection, DirectionEvaluation,
   DirectionValidation, ValidationKind, ValidationStatus, ValidationResult,
+  BusinessDesign, DesignKind, DesignStatus, DesignResult,
+  DeliveryTicket, DeliveryTarget, DeliveryStatus,
 } from "../types.js";
 
 export async function getCompany(): Promise<Company> {
@@ -417,6 +419,112 @@ export async function upsertValidationFail(input: {
      WHERE direction_id = $1 AND kind = $2`,
     [input.directionId, input.kind, input.error]
   );
+}
+
+// ============================================================================
+// 业务线上化 designs + delivery tickets
+// ============================================================================
+
+interface DesignRow {
+  direction_id: string; kind: DesignKind; status: DesignStatus;
+  workflow_id: string | null; result: DesignResult | null; error: string | null;
+  started_at: Date; finished_at: Date | null;
+}
+const rowToDesign = (r: DesignRow): BusinessDesign => ({
+  directionId: r.direction_id, kind: r.kind, status: r.status,
+  workflowId: r.workflow_id, result: r.result, error: r.error,
+  startedAt: r.started_at.toISOString(),
+  finishedAt: r.finished_at ? r.finished_at.toISOString() : null,
+});
+
+export async function listBusinessDesigns(directionId: string): Promise<BusinessDesign[]> {
+  const { rows } = await query<DesignRow>(
+    `SELECT * FROM business_designs WHERE direction_id = $1 ORDER BY kind`,
+    [directionId]
+  );
+  return rows.map(rowToDesign);
+}
+
+export async function upsertDesignStart(input: {
+  directionId: string; kind: DesignKind; workflowId: string;
+}): Promise<void> {
+  await query(
+    `INSERT INTO business_designs (direction_id, kind, status, workflow_id, result, error, started_at, finished_at)
+     VALUES ($1, $2, 'RUNNING', $3, NULL, NULL, NOW(), NULL)
+     ON CONFLICT (direction_id, kind) DO UPDATE SET
+       status = 'RUNNING', workflow_id = EXCLUDED.workflow_id,
+       result = NULL, error = NULL, started_at = NOW(), finished_at = NULL`,
+    [input.directionId, input.kind, input.workflowId]
+  );
+}
+
+export async function upsertDesignDone(input: {
+  directionId: string; kind: DesignKind; result: DesignResult;
+}): Promise<void> {
+  await query(
+    `UPDATE business_designs
+     SET status = 'COMPLETED', result = $3::jsonb, error = NULL, finished_at = NOW()
+     WHERE direction_id = $1 AND kind = $2`,
+    [input.directionId, input.kind, JSON.stringify(input.result)]
+  );
+}
+
+export async function upsertDesignFail(input: {
+  directionId: string; kind: DesignKind; error: string;
+}): Promise<void> {
+  await query(
+    `UPDATE business_designs
+     SET status = 'FAILED', error = $3, finished_at = NOW()
+     WHERE direction_id = $1 AND kind = $2`,
+    [input.directionId, input.kind, input.error]
+  );
+}
+
+interface DeliveryRow {
+  id: string; direction_id: string; target: DeliveryTarget; source_kind: DesignKind;
+  title: string; detail: string | null; status: DeliveryStatus; created_at: Date;
+}
+const rowToTicket = (r: DeliveryRow): DeliveryTicket => ({
+  id: r.id, directionId: r.direction_id, target: r.target, sourceKind: r.source_kind,
+  title: r.title, detail: r.detail, status: r.status,
+  createdAt: r.created_at.toISOString(),
+});
+
+/** Replace every ticket produced by one (direction, sourceKind) design. */
+export async function replaceDeliveryTickets(input: {
+  directionId: string; sourceKind: DesignKind;
+  tickets: Array<{ id: string; target: DeliveryTarget; title: string; detail: string }>;
+}): Promise<void> {
+  await query(
+    `DELETE FROM delivery_tickets WHERE direction_id = $1 AND source_kind = $2`,
+    [input.directionId, input.sourceKind]
+  );
+  for (const t of input.tickets) {
+    await query(
+      `INSERT INTO delivery_tickets (id, direction_id, target, source_kind, title, detail, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'pending')`,
+      [t.id, input.directionId, t.target, input.sourceKind, t.title, t.detail]
+    );
+  }
+}
+
+export async function listDeliveryTickets(target?: DeliveryTarget): Promise<DeliveryTicket[]> {
+  const { rows } = target
+    ? await query<DeliveryRow>(
+        `SELECT * FROM delivery_tickets WHERE target = $1 ORDER BY created_at DESC`, [target])
+    : await query<DeliveryRow>(
+        `SELECT * FROM delivery_tickets ORDER BY created_at DESC`);
+  return rows.map(rowToTicket);
+}
+
+export async function updateDeliveryTicketStatus(
+  id: string, status: DeliveryStatus,
+): Promise<DeliveryTicket | null> {
+  const { rows } = await query<DeliveryRow>(
+    `UPDATE delivery_tickets SET status = $2 WHERE id = $1 RETURNING *`,
+    [id, status]
+  );
+  return rows[0] ? rowToTicket(rows[0]) : null;
 }
 
 // ============================================================================

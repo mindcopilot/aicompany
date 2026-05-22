@@ -11,11 +11,13 @@ import {
   HELIX_TRENDING_CONSOLIDATE, HELIX_EVALUATE_DIRECTION,
   HELIX_VALIDATE_MARKET, HELIX_VALIDATE_COMPETITOR,
   HELIX_VALIDATE_FEASIBILITY, HELIX_VALIDATE_USER,
+  HELIX_DESIGN_OPERATIONS, HELIX_DESIGN_TRAFFIC,
 } from "../../llm/prompts.js";
 import type {
   Direction, FounderProfile, CopilotMessage,
   DirectionEvaluation, MyDirection,
   MarketAnalysis, CompetitorAnalysis, FeasibilityAnalysis, UserAnalysis,
+  OperationsDesign, TrafficDesign, DirectionValidation,
 } from "../../types.js";
 import type { MarketSignal } from "./signals.js";
 import type { RawTrendingItem } from "./agent-reach.js";
@@ -388,6 +390,125 @@ export async function llmValidateUser(input: {
   });
   await noteValidationLlm(input.workflowId, "user", "用户合成", res.usage);
   return UserSchema.parse(parseJson(res.content));
+}
+
+// ----------------------- 业务线上化 design activities -----------------------
+
+async function noteDesignLlm(
+  workflowId: string,
+  kind: "operations" | "traffic",
+  label: string,
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number },
+): Promise<void> {
+  try {
+    await appendWorkflowEvent({
+      workflowId,
+      kind: "log",
+      activity: `design:${kind}`,
+      message: `${label}设计 · DeepSeek 已返回结构化方案`,
+      payload: usage
+        ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens }
+        : null,
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Compact COMPLETED validation results into a kind-keyed object for design context.
+function compactValidations(validations: DirectionValidation[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const v of validations) {
+    if (v.status === "COMPLETED" && v.result) out[v.kind] = v.result;
+  }
+  return out;
+}
+
+const DeliverableSchema = z.object({
+  target: z.enum(["content", "traffic"]),
+  title: z.string(),
+  detail: z.string(),
+});
+
+const OperationsSchema = z.object({
+  summary: z.string(),
+  lifecycle: z.array(z.object({
+    stage: z.string(),
+    goal: z.string(),
+    tactics: z.array(z.string()).min(1),
+  })).min(1),
+  cadence: z.array(z.object({
+    name: z.string(), frequency: z.string(), owner: z.string(), detail: z.string(),
+  })).min(1),
+  retentionLevers: z.array(z.object({ lever: z.string(), mechanism: z.string() })).min(1),
+  northStar: z.object({ metric: z.string(), target: z.string(), rationale: z.string() }),
+  deliverables: z.array(DeliverableSchema).min(1),
+});
+
+export async function llmDesignOperations(input: {
+  direction: Pick<MyDirection, "title" | "description" | "tags">;
+  profile: FounderProfile;
+  validations: DirectionValidation[];
+  workflowId: string;
+  userId?: string;
+}): Promise<OperationsDesign> {
+  const payload = {
+    direction: input.direction,
+    profile: input.profile,
+    validation: compactValidations(input.validations),
+  };
+  const messages = [
+    { role: "system" as const, content: HELIX_DESIGN_OPERATIONS },
+    { role: "user" as const, content: "请基于以下信息设计产品运营体系：\n```json\n" + JSON.stringify(payload, null, 2) + "\n```" },
+  ];
+  const res = await chat({
+    messages, traceName: "helix.designOperations", traceId: input.workflowId, userId: input.userId,
+    temperature: 0.5, json: true,
+    metadata: { direction: input.direction.title },
+  });
+  await noteDesignLlm(input.workflowId, "operations", "产品运营体系", res.usage);
+  return OperationsSchema.parse(parseJson(res.content));
+}
+
+const TrafficDesignSchema = z.object({
+  summary: z.string(),
+  channels: z.array(z.object({
+    channel: z.string(), fit: z.string(),
+    priority: z.enum(["high", "medium", "low"]), cacEstimate: z.string(),
+  })).min(1),
+  tactics: z.array(z.object({
+    channel: z.string(), tactic: z.string(), expectedResult: z.string(),
+  })).min(1),
+  funnel: z.array(z.object({
+    stage: z.string(), action: z.string(), metric: z.string(),
+  })).min(1),
+  budgetSplit: z.array(z.object({ item: z.string(), pct: z.number() })).min(1),
+  deliverables: z.array(DeliverableSchema).min(1),
+});
+
+export async function llmDesignTraffic(input: {
+  direction: Pick<MyDirection, "title" | "description" | "tags">;
+  profile: FounderProfile;
+  validations: DirectionValidation[];
+  workflowId: string;
+  userId?: string;
+}): Promise<TrafficDesign> {
+  const payload = {
+    direction: input.direction,
+    profile: input.profile,
+    validation: compactValidations(input.validations),
+  };
+  const messages = [
+    { role: "system" as const, content: HELIX_DESIGN_TRAFFIC },
+    { role: "user" as const, content: "请基于以下信息设计流量获取手段：\n```json\n" + JSON.stringify(payload, null, 2) + "\n```" },
+  ];
+  const res = await chat({
+    messages, traceName: "helix.designTraffic", traceId: input.workflowId, userId: input.userId,
+    temperature: 0.5, json: true,
+    metadata: { direction: input.direction.title },
+  });
+  await noteDesignLlm(input.workflowId, "traffic", "流量获取", res.usage);
+  return TrafficDesignSchema.parse(parseJson(res.content));
 }
 
 export async function llmCopilotRespond(input: {

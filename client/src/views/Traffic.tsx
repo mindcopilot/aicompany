@@ -6,6 +6,7 @@ import { CreateForm } from "../components/CreateForm";
 import { useAsync } from "../hooks/useApi";
 import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
+import { DeliveryInbox } from "../components/DeliveryInbox";
 import type { Channel } from "../types/api";
 
 export function TrafficView() {
@@ -53,6 +54,7 @@ export function TrafficView() {
       </div>
 
       <div className="module-body">
+        <DeliveryInbox target="traffic" />
         <div className="module-section grid-4">
           <KPI label="周触达"   value="36.4K" delta="+22%"     data={[18, 21, 24, 25, 28, 32, 36]} accent />
           <KPI label="新增关注" value="412"   delta="+18%"     data={[120, 180, 220, 290, 330, 380, 412]} />

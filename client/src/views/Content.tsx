@@ -5,6 +5,7 @@ import { Sparkline } from "../components/Charts";
 import { useAsync } from "../hooks/useApi";
 import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
+import { DeliveryInbox } from "../components/DeliveryInbox";
 import type { ContentTrack, ContentJob, LibraryItem, ModelMatrix } from "../types/api";
 
 const LIB_FILTERS = ["全部", "文章", "短视频", "长视频", "音频", "图像", "海报"] as const;
@@ -48,6 +49,7 @@ export function ContentView() {
       </div>
 
       <div className="module-body">
+        <DeliveryInbox target="content" />
         <div className="kpi-grid" style={{ marginBottom: 16 }}>
           <ContentKPI label="本周产出" value="48"   delta="+22%" sub="件 · 含 6 类形态" />
           <ContentKPI label="进行中"   value="3"   sub="预计 11 分钟后清空" />

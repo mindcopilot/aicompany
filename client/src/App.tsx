@@ -48,6 +48,13 @@ function AuthedApp() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [agentBusy, setAgentBusy] = useState(true);
   const [company, setCompany] = useState<Company | null>(null);
+  // The direction handed off into 业务线上化 when its 4-维 validation passes.
+  const [productDirectionId, setProductDirectionId] = useState<string | null>(null);
+
+  const gotoProduct = (directionId: string): void => {
+    setProductDirectionId(directionId);
+    setActive("product");
+  };
 
   useEffect(() => {
     void api.dashboard().then(d => setCompany(d.company)).catch(() => {});
@@ -72,8 +79,8 @@ function AuthedApp() {
       <Sidebar active={active} onNav={setActive} />
       <main className="main" key={active}>
         {active === "dashboard"   && <Dashboard setActive={setActive} />}
-        {active === "direction"   && <DirectionView />}
-        {active === "product"     && <ProductView />}
+        {active === "direction"   && <DirectionView onGotoProduct={gotoProduct} />}
+        {active === "product"     && <ProductView directionId={productDirectionId} />}
         {active === "content"     && <ContentView />}
         {active === "traffic"     && <TrafficView />}
         {active === "reach"       && <ReachView />}
