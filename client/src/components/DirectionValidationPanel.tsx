@@ -1,20 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Icon } from "../components/Icon";
-import { AgentTag, SignalCell, th, td } from "../components/primitives";
-import { DonutChart } from "../components/Charts";
-import { WorkflowProgress } from "../components/WorkflowProgress";
-import { useAsync } from "../hooks/useApi";
-import { useUI } from "../lib/ui";
-import { api } from "../lib/api";
+// Per-direction 4-dimension validation workspace.
+//
+// Rendered inline (expanded) under a direction card on the Direction page —
+// 选择 and 论证 live on one screen. It owns no data: the parent direction card
+// owns `validations` + the workflow handle and passes them down, so the card's
+// collapsed progress dots and this panel never drift apart.
+
+import { useMemo, useState } from "react";
+import { Icon } from "./Icon";
+import { AgentTag, SignalCell, th, td } from "./primitives";
+import { DonutChart } from "./Charts";
+import { ValidationProcess } from "./ValidationProcess";
 import type {
-  MyDirection, DirectionValidation, ValidationKind,
+  MyDirection, DirectionValidation, ValidationKind, ValidationStatus,
   MarketAnalysis, CompetitorAnalysis, FeasibilityAnalysis, UserAnalysis,
   WorkflowRun,
 } from "../types/api";
-
-interface Props {
-  directionId: string | null;
-}
 
 const TAB_DEFS: Array<{ id: ValidationKind; name: string; icon: string }> = [
   { id: "market",      name: "市场分析", icon: "activity" },
@@ -23,130 +23,68 @@ const TAB_DEFS: Array<{ id: ValidationKind; name: string; icon: string }> = [
   { id: "user",        name: "用户合成", icon: "msg" },
 ];
 
-export function ValidationView({ directionId }: Props) {
-  if (!directionId) return <NoDirectionPicker />;
-  return <ValidationForDirection directionId={directionId} />;
+const KIND_ORDER: ValidationKind[] = ["market", "competitor", "feasibility", "user"];
+
+// ============================================================================
+// Compact 4-dot progress indicator — shown on the collapsed direction card.
+// ============================================================================
+
+function dotTone(s: ValidationStatus | undefined): string {
+  if (s === "COMPLETED") return "var(--success)";
+  if (s === "RUNNING" || s === "PENDING") return "var(--ai)";
+  if (s === "FAILED") return "var(--warn)";
+  return "transparent";
 }
 
-// ============================================================================
-// Empty state — let user pick a direction
-// ============================================================================
+export function ValidationDots({ validations }: { validations: DirectionValidation[] }) {
+  const byKind: Partial<Record<ValidationKind, ValidationStatus>> = {};
+  for (const v of validations) byKind[v.kind] = v.status;
+  const done = validations.filter(v => v.status === "COMPLETED").length;
+  const running = validations.some(v => v.status === "RUNNING" || v.status === "PENDING");
 
-function NoDirectionPicker() {
-  const { toast } = useUI();
-  const { data } = useAsync(() => api.myDirections.list(), []);
-  const mine = data ?? [];
   return (
-    <>
-      <div className="module-header">
-        <div className="title-wrap">
-          <div className="module-eyebrow">02 · DIRECTION VALIDATION</div>
-          <h1 className="module-title">方向论证</h1>
-          <div className="module-sub">这一页跟随某条「我的方向」展开 4 维深度论证。先选一条方向。</div>
-        </div>
-      </div>
-      <div className="module-body">
-        <div className="module-section">
-          {mine.length === 0 ? (
-            <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
-              你还没有方向。先去「方向选择」录入一条。
-            </div>
-          ) : (
-            <div className="card soft">
-              <div className="card-title" style={{ marginBottom: 12 }}>选一条方向开始论证</div>
-              <div className="grid-3" style={{ gap: 10 }}>
-                {mine.map(d => (
-                  <button key={d.id} className="module-card" style={{ textAlign: "left", cursor: "pointer" }}
-                    onClick={async () => {
-                      try {
-                        await api.myDirections.validate(d.id);
-                        toast(`已启动论证 · 请回到「方向选择」点击「深度论证」跳转`);
-                      } catch (e) {
-                        toast(`启动失败：${e instanceof Error ? e.message : String(e)}`);
-                      }
-                    }}>
-                    <h4 style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>{d.title}</h4>
-                    <div className="desc" style={{ fontSize: 12, color: "var(--text-3)" }}>{d.description ?? ""}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      {KIND_ORDER.map(k => {
+        const s = byKind[k];
+        return (
+          <span key={k} title={k} style={{
+            width: 7, height: 7, borderRadius: 99,
+            background: dotTone(s),
+            border: s ? "none" : "1px solid var(--border-strong)",
+          }} />
+        );
+      })}
+      <span className="mono" style={{ fontSize: 11, color: "var(--text-3)", marginLeft: 3 }}>
+        {validations.length === 0 ? "未论证" : running ? `${done}/4 论证中` : `${done}/4`}
+      </span>
+    </span>
   );
 }
 
 // ============================================================================
-// Per-direction validation
+// The validation workspace itself.
 // ============================================================================
 
-function ValidationForDirection({ directionId }: { directionId: string }) {
-  const { toast } = useUI();
+interface PanelProps {
+  direction: MyDirection;
+  validations: DirectionValidation[];
+  /** Active workflow run, if one was started this session. */
+  workflowId: string | null;
+  /** True while a run is starting or any dimension is still RUNNING/PENDING. */
+  busy: boolean;
+  /** Start (or re-run) the 4-dimension validation. */
+  onStart: () => void;
+  /** Re-fetch validation rows — wired to ValidationProcess's per-poll callback. */
+  onReloadValidations: () => void;
+  /** Fired once when the workflow reaches a terminal status. */
+  onWorkflowTerminal: (run: WorkflowRun) => void;
+}
+
+export function DirectionValidationPanel({
+  direction, validations, workflowId, busy,
+  onStart, onReloadValidations, onWorkflowTerminal,
+}: PanelProps) {
   const [tab, setTab] = useState<ValidationKind>("market");
-  const [latestWorkflowId, setLatestWorkflowId] = useState<string | null>(null);
-  const [direction, setDirection] = useState<MyDirection | null>(null);
-  const [validations, setValidations] = useState<DirectionValidation[]>([]);
-  const [polling, setPolling] = useState(false);
-
-  const loadAll = useCallback(async (): Promise<void> => {
-    const [mine, vals] = await Promise.all([
-      api.myDirections.list(),
-      api.myDirections.validations(directionId),
-    ]);
-    setDirection(mine.find(d => d.id === directionId) ?? null);
-    setValidations(vals);
-  }, [directionId]);
-
-  useEffect(() => { void loadAll(); }, [loadAll]);
-
-  // Whenever the workflow is running, poll validations every 1.5s so the tab
-  // contents transition from "PENDING/RUNNING" to "COMPLETED" without manual refresh.
-  useEffect(() => {
-    if (!polling) return;
-    const interval = window.setInterval(() => void loadAll(), 1500);
-    return () => window.clearInterval(interval);
-  }, [polling, loadAll]);
-
-  // Auto-detect: if any validation row is RUNNING (e.g. user came from Direction
-  // page that just started the workflow), keep polling until all rows settle.
-  useEffect(() => {
-    const anyRunning = validations.some(v => v.status === "RUNNING" || v.status === "PENDING");
-    setPolling(anyRunning);
-  }, [validations]);
-
-  const startValidation = useCallback(async (): Promise<void> => {
-    try {
-      const { workflowId } = await api.myDirections.validate(directionId);
-      setLatestWorkflowId(workflowId);
-      toast("Helix 4 维论证已启动");
-      setPolling(true);
-      void loadAll();
-    } catch (e) {
-      toast(`启动失败：${e instanceof Error ? e.message : String(e)}`);
-    }
-  }, [directionId, loadAll, toast]);
-
-  const onWorkflowTerminal = useCallback((run: WorkflowRun) => {
-    if (run.status === "COMPLETED") {
-      const out = run.output as { completed?: string[]; failed?: string[] } | null;
-      toast(`论证完成 · ${out?.completed?.length ?? 0} 成功 / ${out?.failed?.length ?? 0} 失败`);
-    } else {
-      toast(`论证 ${run.status}${run.error ? "：" + run.error : ""}`);
-    }
-    void loadAll();
-  }, [loadAll, toast]);
-
-  if (!direction) {
-    return (
-      <div className="module-body">
-        <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
-          加载方向 {directionId}…
-        </div>
-      </div>
-    );
-  }
 
   const byKind = useMemo(() => {
     const m: Partial<Record<ValidationKind, DirectionValidation>> = {};
@@ -161,36 +99,44 @@ function ValidationForDirection({ directionId }: { directionId: string }) {
     return { done, running, failed, total: 4 };
   }, [validations]);
 
+  const hasAny = validations.length > 0;
+
   return (
-    <>
-      <div className="module-header">
-        <div className="title-wrap">
-          <div className="module-eyebrow">02 · DIRECTION VALIDATION</div>
-          <h1 className="module-title">方向论证 · {direction.title}</h1>
-          <div className="module-sub">
-            {direction.description ?? "—"}
-          </div>
-        </div>
-        <div className="module-actions">
-          <span className="tag ai" style={{ marginRight: 4 }}>
-            <span className="dot" /> {stats.done} / {stats.total} 已完成
-            {stats.running > 0 && ` · ${stats.running} 进行中`}
-            {stats.failed > 0 && ` · ${stats.failed} 失败`}
-          </span>
-          <button className="btn" onClick={startValidation} disabled={polling}>
-            <Icon name="refresh" size={14} /> {polling ? "论证中…" : "重新论证"}
-          </button>
-        </div>
+    <div style={{
+      display: "grid", gap: 12,
+      marginTop: 12, paddingTop: 14, borderTop: "1px solid var(--border)",
+    }}>
+      {/* ---- panel header + run control ---- */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <AgentTag name="Helix" />
+        <span style={{ fontSize: 13, fontWeight: 600 }}>4 维深度论证</span>
+        <span className="muted text-xs">市场 · 竞品 · 可行性 · 用户</span>
+        <button className="btn sm accent" style={{ marginLeft: "auto" }} onClick={onStart} disabled={busy}>
+          <Icon name={busy ? "refresh" : "target"} size={12} />
+          {busy ? "论证中…" : hasAny ? "重新论证" : "开始 4 维论证"}
+        </button>
       </div>
 
-      <div className="module-body">
-        {latestWorkflowId && (
-          <div className="module-section">
-            <WorkflowProgress workflowId={latestWorkflowId} onTerminal={onWorkflowTerminal} />
-          </div>
-        )}
+      {/* ---- live process panel ---- */}
+      {workflowId && (
+        <ValidationProcess
+          workflowId={workflowId}
+          validations={validations}
+          onPoll={onReloadValidations}
+          onTerminal={onWorkflowTerminal}
+        />
+      )}
 
-        <div className="module-section grid-3">
+      {/* ---- empty state (never validated, nothing running) ---- */}
+      {!workflowId && !hasAny && (
+        <div className="card soft" style={{ textAlign: "center", padding: 22, color: "var(--text-3)", fontSize: 13 }}>
+          还没有论证记录。点「开始 4 维论证」让 Helix 跑一轮市场 / 竞品 / 可行性 / 用户分析。
+        </div>
+      )}
+
+      {/* ---- summary cards ---- */}
+      {hasAny && (
+        <div className="grid-3" style={{ gap: 12 }}>
           <div className="card">
             <div className="card-title"><Icon name="target" size={14} /> 综合可信度</div>
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 8 }}>
@@ -242,8 +188,11 @@ function ValidationForDirection({ directionId }: { directionId: string }) {
             </div>
           </div>
         </div>
+      )}
 
-        <div className="module-section">
+      {/* ---- 4-dimension tabs ---- */}
+      {hasAny && (
+        <div>
           <div className="tabs">
             {TAB_DEFS.map(t => {
               const v = byKind[t.id];
@@ -267,8 +216,8 @@ function ValidationForDirection({ directionId }: { directionId: string }) {
             {tab === "user"        && <UserTab v={byKind.user} />}
           </div>
         </div>
-      </div>
-    </>
+      )}
+    </div>
   );
 }
 
@@ -279,7 +228,7 @@ function ValidationForDirection({ directionId }: { directionId: string }) {
 function PlaceholderCard({ v }: { v: DirectionValidation | undefined }) {
   if (!v) return (
     <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
-      尚未论证。点右上「重新论证」让 Helix 跑一轮。
+      尚未论证。点上方「重新论证」让 Helix 跑一轮。
     </div>
   );
   if (v.status === "PENDING" || v.status === "RUNNING") return (

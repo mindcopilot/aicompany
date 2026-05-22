@@ -29,6 +29,14 @@ export interface ValidateDirectionOutput {
 
 const ALL_KINDS: ValidationKind[] = ["market", "competitor", "feasibility", "user"];
 
+// Chinese labels so the live timeline reads naturally without a client-side map.
+const KIND_LABEL: Record<ValidationKind, string> = {
+  market:      "市场分析",
+  competitor:  "竞品分析",
+  feasibility: "可行性分析",
+  user:        "用户合成",
+};
+
 export async function validateDirectionWorkflow(input: ValidateDirectionInput): Promise<ValidateDirectionOutput> {
   const info = workflowInfo();
   const wfId = info.workflowId;
@@ -43,7 +51,10 @@ export async function validateDirectionWorkflow(input: ValidateDirectionInput): 
     input,
   });
   await dbActs.updateWorkflowRun({ id: wfId, status: "RUNNING", currentActivity: "loadContext" });
-  await dbActs.recordWorkflowEvent({ workflowId: wfId, kind: "workflow_started" });
+  await dbActs.recordWorkflowEvent({
+    workflowId: wfId, kind: "workflow_started",
+    message: "Helix 接管 · 启动 4 维深度论证",
+  });
 
   const direction = await acts.loadMyDirection(input.directionId);
   const profile = await acts.loadFounderProfile(input.userId);
@@ -52,19 +63,30 @@ export async function validateDirectionWorkflow(input: ValidateDirectionInput): 
     description: direction.description,
     tags: direction.tags,
   };
+  await dbActs.recordWorkflowEvent({
+    workflowId: wfId, kind: "log",
+    message: "已载入方向上下文与创始人画像",
+    payload: { title: direction.title, tags: direction.tags },
+  });
 
   // Mark all 4 rows RUNNING up-front so the UI can render their states immediately.
   await Promise.all(kinds.map(k =>
     dbActs.markValidationStart({ directionId: input.directionId, kind: k, workflowId: wfId })
   ));
+  await dbActs.updateWorkflowRun({ id: wfId, currentActivity: "validating" });
   await dbActs.recordWorkflowEvent({
-    workflowId: wfId, kind: "log", message: "validations seeded",
-    payload: { kinds },
+    workflowId: wfId, kind: "log",
+    message: `${kinds.length} 个维度已排期 · 并行启动`,
+    payload: { kinds: kinds.map(k => KIND_LABEL[k]) },
   });
 
   // Run each kind independently. The .catch ensures one failure doesn't abort the others.
   const runOne = async (kind: ValidationKind): Promise<{ kind: ValidationKind; ok: boolean; err?: string }> => {
-    await dbActs.recordWorkflowEvent({ workflowId: wfId, kind: "activity_started", activity: `validate:${kind}` });
+    const label = KIND_LABEL[kind];
+    await dbActs.recordWorkflowEvent({
+      workflowId: wfId, kind: "activity_started", activity: `validate:${kind}`,
+      message: `${label} · 调用 Helix 推理`,
+    });
     try {
       let result;
       switch (kind) {
@@ -73,14 +95,22 @@ export async function validateDirectionWorkflow(input: ValidateDirectionInput): 
         case "feasibility": result = await acts.llmValidateFeasibility({ direction: dirPayload, profile, workflowId: wfId, userId: input.userId }); break;
         case "user":        result = await acts.llmValidateUser({ direction: dirPayload, profile, workflowId: wfId, userId: input.userId }); break;
       }
+      await dbActs.recordWorkflowEvent({
+        workflowId: wfId, kind: "log", activity: `validate:${kind}`,
+        message: `${label} · 结论解析完成 · 正在写入`,
+      });
       await acts.markValidationDone({ directionId: input.directionId, kind, result });
-      await dbActs.recordWorkflowEvent({ workflowId: wfId, kind: "activity_completed", activity: `validate:${kind}` });
+      await dbActs.recordWorkflowEvent({
+        workflowId: wfId, kind: "activity_completed", activity: `validate:${kind}`,
+        message: `${label}完成 · 结论已落库`,
+      });
       return { kind, ok: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await acts.markValidationFail({ directionId: input.directionId, kind, error: msg });
       await dbActs.recordWorkflowEvent({
-        workflowId: wfId, kind: "log", message: `validate:${kind} failed`,
+        workflowId: wfId, kind: "log", activity: `validate:${kind}`,
+        message: `${label}失败`,
         payload: { error: msg },
       });
       return { kind, ok: false, err: msg };
@@ -109,6 +139,9 @@ export async function validateDirectionWorkflow(input: ValidateDirectionInput): 
   await dbActs.recordWorkflowEvent({
     workflowId: wfId,
     kind: allFailed ? "workflow_failed" : "workflow_completed",
+    message: allFailed
+      ? "论证失败 · 4 个维度均未完成"
+      : `论证完成 · ${completed.length} 个维度成功${failed.length > 0 ? ` · ${failed.length} 个失败` : ""}`,
     payload: output,
   });
 

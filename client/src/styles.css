@@ -517,6 +517,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   z-index: 50; animation: fade .15s ease-out;
 }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 .drawer {
   position: fixed; right: 0; top: 0; bottom: 0; width: 520px;
   background: var(--bg); z-index: 51; border-left: 1px solid var(--border);

@@ -9,7 +9,6 @@ import { UIProvider } from "./lib/ui";
 
 import { Dashboard } from "./views/Dashboard";
 import { DirectionView } from "./views/Direction";
-import { ValidationView } from "./views/Validation";
 import { ProductView } from "./views/Product";
 import { ContentView } from "./views/Content";
 import { TrafficView } from "./views/Traffic";
@@ -49,15 +48,6 @@ function AuthedApp() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [agentBusy, setAgentBusy] = useState(true);
   const [company, setCompany] = useState<Company | null>(null);
-  // ID of the direction the Validation view is focused on. Set when the user
-  // clicks "深度论证" on a Direction card so the Validation page can render
-  // the right context across the cross-page jump.
-  const [validationDirectionId, setValidationDirectionId] = useState<string | null>(null);
-
-  const gotoValidation = (directionId: string): void => {
-    setValidationDirectionId(directionId);
-    setActive("validation");
-  };
 
   useEffect(() => {
     void api.dashboard().then(d => setCompany(d.company)).catch(() => {});
@@ -82,8 +72,7 @@ function AuthedApp() {
       <Sidebar active={active} onNav={setActive} />
       <main className="main" key={active}>
         {active === "dashboard"   && <Dashboard setActive={setActive} />}
-        {active === "direction"   && <DirectionView onValidate={gotoValidation} />}
-        {active === "validation"  && <ValidationView directionId={validationDirectionId} />}
+        {active === "direction"   && <DirectionView />}
         {active === "product"     && <ProductView />}
         {active === "content"     && <ContentView />}
         {active === "traffic"     && <TrafficView />}

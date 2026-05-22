@@ -3,7 +3,7 @@ import { UserMenu } from "./UserMenu";
 
 export type ViewId =
   | "dashboard"
-  | "direction" | "validation"
+  | "direction"
   | "product" | "content" | "traffic" | "reach"
   | "data"
   | "models" | "knowledge" | "prompts" | "skills" | "agents" | "automations";
@@ -16,8 +16,7 @@ export const NAV: NavGroup[] = [
     { id: "dashboard", name: "Dashboard", icon: "home", badge: null },
   ]},
   { group: "战略 · STRATEGY", items: [
-    { id: "direction",  name: "方向选择", icon: "compass", badge: "AI" },
-    { id: "validation", name: "方向论证", icon: "target",  badge: "AI" },
+    { id: "direction", name: "方向", icon: "compass", badge: "AI" },
   ]},
   { group: "执行 · EXECUTION", items: [
     { id: "product", name: "业务线上化", icon: "layers",  badge: "3/5" },

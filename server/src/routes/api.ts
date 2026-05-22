@@ -29,12 +29,11 @@ router.get("/dashboard", async (_req, res, next) => {
         completion: { label: "完课率",     value: "68%",     delta: "-4.2%",  data: [78, 76, 74, 72, 72, 71, 70, 69, 68, 67, 68, 68], down: true },
       },
       modules: [
-        { id: "direction",  num: "01", title: "方向选择",   desc: "AI 推荐 4 条赛道，已确认主线。",      pct: 100, status: "已确认",     statusTag: "success" },
-        { id: "validation", num: "02", title: "方向论证",   desc: "市场 / 竞品 / 可行性 多维校验。",     pct: 80,  status: "Helix 进行中", statusTag: "ai" },
-        { id: "product",    num: "03", title: "业务线上化", desc: "落地页 + 课程 + 支付 + 服务。",       pct: 62,  status: "进行中",     statusTag: "accent" },
-        { id: "traffic",    num: "04", title: "流量分发",   desc: "6 / 8 渠道激活，AI 自动分发。",       pct: 75,  status: "Atlas 运行",  statusTag: "ai" },
-        { id: "reach",      num: "05", title: "用户触达",   desc: "私域承接 + 自动化 sequences。",       pct: 45,  status: "需要配置",   statusTag: "warn" },
-        { id: "data",       num: "06", title: "数据验证",   desc: "北极星指标 + 留存 + 异常告警。",      pct: 88,  status: "健康",       statusTag: "success" },
+        { id: "direction", num: "01", title: "方向",       desc: "创意库 + 热门探索 + 4 维深度论证。", pct: 90, status: "Helix 论证中", statusTag: "ai" },
+        { id: "product",   num: "02", title: "业务线上化", desc: "落地页 + 课程 + 支付 + 服务。",       pct: 62, status: "进行中",      statusTag: "accent" },
+        { id: "traffic",   num: "03", title: "流量分发",   desc: "6 / 8 渠道激活，AI 自动分发。",       pct: 75, status: "Atlas 运行",   statusTag: "ai" },
+        { id: "reach",     num: "04", title: "用户触达",   desc: "私域承接 + 自动化 sequences。",       pct: 45, status: "需要配置",    statusTag: "warn" },
+        { id: "data",      num: "05", title: "数据验证",   desc: "北极星指标 + 留存 + 异常告警。",      pct: 88, status: "健康",        statusTag: "success" },
       ],
       runs24h: [
         { t: "14:30", a: "Atlas", task: "发布小红书 · 《独立开发者周记 #12》", trig: "schedule", s: "queued" },
