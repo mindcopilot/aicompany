@@ -1,0 +1,14 @@
+{
+  "name": "lumenedu-ai-founder-os",
+  "private": true,
+  "version": "0.4.0",
+  "description": "LumenEdu · AI Founder OS — TypeScript fullstack implementation",
+  "workspaces": ["client", "server"],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:client": "npm --workspace client run dev",
+    "dev:server": "npm --workspace server run dev",
+    "build": "npm --workspace server run build && npm --workspace client run build",
+    "typecheck": "npm --workspace server run typecheck && npm --workspace client run typecheck"
+  }
+}

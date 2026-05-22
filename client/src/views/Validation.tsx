@@ -1,0 +1,493 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Icon } from "../components/Icon";
+import { AgentTag, SignalCell, th, td } from "../components/primitives";
+import { DonutChart } from "../components/Charts";
+import { WorkflowProgress } from "../components/WorkflowProgress";
+import { useAsync } from "../hooks/useApi";
+import { useUI } from "../lib/ui";
+import { api } from "../lib/api";
+import type {
+  MyDirection, DirectionValidation, ValidationKind,
+  MarketAnalysis, CompetitorAnalysis, FeasibilityAnalysis, UserAnalysis,
+  WorkflowRun,
+} from "../types/api";
+
+interface Props {
+  directionId: string | null;
+}
+
+const TAB_DEFS: Array<{ id: ValidationKind; name: string; icon: string }> = [
+  { id: "market",      name: "市场分析", icon: "activity" },
+  { id: "competitor",  name: "竞品分析", icon: "users" },
+  { id: "feasibility", name: "可行性",   icon: "settings" },
+  { id: "user",        name: "用户合成", icon: "msg" },
+];
+
+export function ValidationView({ directionId }: Props) {
+  if (!directionId) return <NoDirectionPicker />;
+  return <ValidationForDirection directionId={directionId} />;
+}
+
+// ============================================================================
+// Empty state — let user pick a direction
+// ============================================================================
+
+function NoDirectionPicker() {
+  const { toast } = useUI();
+  const { data } = useAsync(() => api.myDirections.list(), []);
+  const mine = data ?? [];
+  return (
+    <>
+      <div className="module-header">
+        <div className="title-wrap">
+          <div className="module-eyebrow">02 · DIRECTION VALIDATION</div>
+          <h1 className="module-title">方向论证</h1>
+          <div className="module-sub">这一页跟随某条「我的方向」展开 4 维深度论证。先选一条方向。</div>
+        </div>
+      </div>
+      <div className="module-body">
+        <div className="module-section">
+          {mine.length === 0 ? (
+            <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
+              你还没有方向。先去「方向选择」录入一条。
+            </div>
+          ) : (
+            <div className="card soft">
+              <div className="card-title" style={{ marginBottom: 12 }}>选一条方向开始论证</div>
+              <div className="grid-3" style={{ gap: 10 }}>
+                {mine.map(d => (
+                  <button key={d.id} className="module-card" style={{ textAlign: "left", cursor: "pointer" }}
+                    onClick={async () => {
+                      try {
+                        await api.myDirections.validate(d.id);
+                        toast(`已启动论证 · 请回到「方向选择」点击「深度论证」跳转`);
+                      } catch (e) {
+                        toast(`启动失败：${e instanceof Error ? e.message : String(e)}`);
+                      }
+                    }}>
+                    <h4 style={{ fontSize: 14, fontWeight: 500, margin: 0 }}>{d.title}</h4>
+                    <div className="desc" style={{ fontSize: 12, color: "var(--text-3)" }}>{d.description ?? ""}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
+// Per-direction validation
+// ============================================================================
+
+function ValidationForDirection({ directionId }: { directionId: string }) {
+  const { toast } = useUI();
+  const [tab, setTab] = useState<ValidationKind>("market");
+  const [latestWorkflowId, setLatestWorkflowId] = useState<string | null>(null);
+  const [direction, setDirection] = useState<MyDirection | null>(null);
+  const [validations, setValidations] = useState<DirectionValidation[]>([]);
+  const [polling, setPolling] = useState(false);
+
+  const loadAll = useCallback(async (): Promise<void> => {
+    const [mine, vals] = await Promise.all([
+      api.myDirections.list(),
+      api.myDirections.validations(directionId),
+    ]);
+    setDirection(mine.find(d => d.id === directionId) ?? null);
+    setValidations(vals);
+  }, [directionId]);
+
+  useEffect(() => { void loadAll(); }, [loadAll]);
+
+  // Whenever the workflow is running, poll validations every 1.5s so the tab
+  // contents transition from "PENDING/RUNNING" to "COMPLETED" without manual refresh.
+  useEffect(() => {
+    if (!polling) return;
+    const interval = window.setInterval(() => void loadAll(), 1500);
+    return () => window.clearInterval(interval);
+  }, [polling, loadAll]);
+
+  // Auto-detect: if any validation row is RUNNING (e.g. user came from Direction
+  // page that just started the workflow), keep polling until all rows settle.
+  useEffect(() => {
+    const anyRunning = validations.some(v => v.status === "RUNNING" || v.status === "PENDING");
+    setPolling(anyRunning);
+  }, [validations]);
+
+  const startValidation = useCallback(async (): Promise<void> => {
+    try {
+      const { workflowId } = await api.myDirections.validate(directionId);
+      setLatestWorkflowId(workflowId);
+      toast("Helix 4 维论证已启动");
+      setPolling(true);
+      void loadAll();
+    } catch (e) {
+      toast(`启动失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [directionId, loadAll, toast]);
+
+  const onWorkflowTerminal = useCallback((run: WorkflowRun) => {
+    if (run.status === "COMPLETED") {
+      const out = run.output as { completed?: string[]; failed?: string[] } | null;
+      toast(`论证完成 · ${out?.completed?.length ?? 0} 成功 / ${out?.failed?.length ?? 0} 失败`);
+    } else {
+      toast(`论证 ${run.status}${run.error ? "：" + run.error : ""}`);
+    }
+    void loadAll();
+  }, [loadAll, toast]);
+
+  if (!direction) {
+    return (
+      <div className="module-body">
+        <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
+          加载方向 {directionId}…
+        </div>
+      </div>
+    );
+  }
+
+  const byKind = useMemo(() => {
+    const m: Partial<Record<ValidationKind, DirectionValidation>> = {};
+    for (const v of validations) m[v.kind] = v;
+    return m;
+  }, [validations]);
+
+  const stats = useMemo(() => {
+    const done = validations.filter(v => v.status === "COMPLETED").length;
+    const running = validations.filter(v => v.status === "RUNNING" || v.status === "PENDING").length;
+    const failed = validations.filter(v => v.status === "FAILED").length;
+    return { done, running, failed, total: 4 };
+  }, [validations]);
+
+  return (
+    <>
+      <div className="module-header">
+        <div className="title-wrap">
+          <div className="module-eyebrow">02 · DIRECTION VALIDATION</div>
+          <h1 className="module-title">方向论证 · {direction.title}</h1>
+          <div className="module-sub">
+            {direction.description ?? "—"}
+          </div>
+        </div>
+        <div className="module-actions">
+          <span className="tag ai" style={{ marginRight: 4 }}>
+            <span className="dot" /> {stats.done} / {stats.total} 已完成
+            {stats.running > 0 && ` · ${stats.running} 进行中`}
+            {stats.failed > 0 && ` · ${stats.failed} 失败`}
+          </span>
+          <button className="btn" onClick={startValidation} disabled={polling}>
+            <Icon name="refresh" size={14} /> {polling ? "论证中…" : "重新论证"}
+          </button>
+        </div>
+      </div>
+
+      <div className="module-body">
+        {latestWorkflowId && (
+          <div className="module-section">
+            <WorkflowProgress workflowId={latestWorkflowId} onTerminal={onWorkflowTerminal} />
+          </div>
+        )}
+
+        <div className="module-section grid-3">
+          <div className="card">
+            <div className="card-title"><Icon name="target" size={14} /> 综合可信度</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 8 }}>
+              <DonutChart data={[
+                { name: "已验证", value: stats.done, color: "var(--accent)" },
+                { name: "进行中", value: stats.running, color: "var(--ai)" },
+                { name: "失败",   value: stats.failed, color: "var(--warn)" },
+                { name: "未开始", value: Math.max(0, stats.total - stats.done - stats.running - stats.failed), color: "var(--bg-mute)" },
+              ]} />
+              <div>
+                <div className="mono" style={{ fontSize: 32, fontWeight: 600, letterSpacing: "-0.02em" }}>
+                  {Math.round(stats.done / stats.total * 100)}<span style={{ fontSize: 16, color: "var(--text-3)" }}>%</span>
+                </div>
+                <div className="muted text-xs">
+                  {stats.done === 4 ? "已完整论证" : stats.done === 0 ? "尚未论证" : `已完成 ${stats.done} / 4 维`}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title"><AgentTag name="Helix" /> 状态概览</div>
+            <ul style={{ paddingLeft: 0, listStyle: "none", margin: "12px 0 0", fontSize: 13 }}>
+              {TAB_DEFS.map(t => {
+                const v = byKind[t.id];
+                const status = v?.status ?? "—";
+                const tone =
+                  status === "COMPLETED" ? "success" :
+                  status === "RUNNING" || status === "PENDING" ? "ai" :
+                  status === "FAILED" ? "warn" : "";
+                return (
+                  <li key={t.id} style={{ padding: "8px 0", borderBottom: "1px dashed var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+                    <Icon name={t.icon} size={12} />
+                    <span style={{ flex: 1 }}>{t.name}</span>
+                    <span className={`tag ${tone}`}>{status}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <div className="card">
+            <div className="card-title"><Icon name="bar" size={14} /> 方向元信息</div>
+            <div className="grid-2" style={{ gap: 8, marginTop: 12 }}>
+              <SignalCell n={direction.evaluation?.score ?? "—"} l="快速评分 · 总分" />
+              <SignalCell n={direction.tags.length} l="标签数" />
+              <SignalCell n={new Date(direction.createdAt).toLocaleDateString()} l="创建时间" />
+              <SignalCell n={direction.source.startsWith("from_trending") ? "热门导入" : "手动录入"} l="来源" />
+            </div>
+          </div>
+        </div>
+
+        <div className="module-section">
+          <div className="tabs">
+            {TAB_DEFS.map(t => {
+              const v = byKind[t.id];
+              const count =
+                v?.status === "COMPLETED" ? "✓" :
+                v?.status === "RUNNING" || v?.status === "PENDING" ? "…" :
+                v?.status === "FAILED" ? "!" :
+                "—";
+              return (
+                <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+                  {t.name}<span className="count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-12">
+            {tab === "market"      && <MarketTab v={byKind.market} />}
+            {tab === "competitor"  && <CompetitorTab v={byKind.competitor} />}
+            {tab === "feasibility" && <FeasibilityTab v={byKind.feasibility} />}
+            {tab === "user"        && <UserTab v={byKind.user} />}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
+// Tab content components
+// ============================================================================
+
+function PlaceholderCard({ v }: { v: DirectionValidation | undefined }) {
+  if (!v) return (
+    <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
+      尚未论证。点右上「重新论证」让 Helix 跑一轮。
+    </div>
+  );
+  if (v.status === "PENDING" || v.status === "RUNNING") return (
+    <div className="card soft" style={{ padding: 24, textAlign: "center", color: "var(--text-3)" }}>
+      Helix 正在分析中…
+    </div>
+  );
+  if (v.status === "FAILED") return (
+    <div className="card" style={{ padding: 24, borderColor: "var(--warn)" }}>
+      <div style={{ color: "var(--warn)", fontWeight: 500, marginBottom: 6 }}>
+        <Icon name="flag" size={14} /> 这一维分析失败
+      </div>
+      <div className="muted text-xs">{v.error ?? ""}</div>
+    </div>
+  );
+  return null;
+}
+
+function MarketTab({ v }: { v: DirectionValidation | undefined }) {
+  const ph = <PlaceholderCard v={v} />;
+  if (!v || v.status !== "COMPLETED" || !v.result) return ph;
+  const r = v.result as MarketAnalysis;
+  return (
+    <div className="grid-2" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="card-title"><Icon name="activity" size={14} /> 市场规模</div>
+        <div className="mt-12">
+          {[
+            { label: "TAM (Total)",      v: r.tam },
+            { label: "SAM (可服务)",      v: r.sam },
+            { label: "SOM (可获取)",      v: r.som },
+          ].map(s => (
+            <div key={s.label} className="score-row" style={{ padding: "8px 0" }}>
+              <span className="label" style={{ width: 110, fontSize: 12 }}>{s.label}</span>
+              <span className="bar"><i style={{ width: `${s.v.pct}%` }} /></span>
+              <span className="val">{s.v.value}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-12 grid-2" style={{ gap: 8 }}>
+          <SignalCell n={r.growthYoY} l="增长 (YoY)" />
+          <SignalCell n={r.pricingBand} l="主流定价" />
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-title"><Icon name="sparkle" size={14} /> 趋势 / 红旗</div>
+        <div className="mt-12" style={{ fontSize: 13 }}>
+          <div className="muted text-xs mb-8" style={{ textTransform: "uppercase" }}>趋势</div>
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            {r.trends.map((t, i) => <li key={i} style={{ marginBottom: 6 }}>{t}</li>)}
+          </ul>
+          {r.redFlags.length > 0 && (
+            <>
+              <div className="muted text-xs mb-8 mt-16" style={{ textTransform: "uppercase", color: "var(--warn)" }}>红旗</div>
+              <ul style={{ paddingLeft: 18, margin: 0 }}>
+                {r.redFlags.map((t, i) => <li key={i} style={{ marginBottom: 6, color: "var(--warn)" }}>{t}</li>)}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompetitorTab({ v }: { v: DirectionValidation | undefined }) {
+  const ph = <PlaceholderCard v={v} />;
+  if (!v || v.status !== "COMPLETED" || !v.result) return ph;
+  const r = v.result as CompetitorAnalysis;
+  return (
+    <>
+      <div className="card flush mb-12">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "var(--bg-soft)", color: "var(--text-3)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {["竞品", "阶段", "用户", "定价", "增长", "优势", "弱点", "威胁度"].map(h => <th key={h} style={th}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {r.competitors.map((c, i) => (
+              <tr key={c.name} style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                <td style={td}><strong>{c.name}</strong></td>
+                <td style={td}><span className="tag">{c.stage}</span></td>
+                <td style={{ ...td, fontFamily: "var(--font-mono)" }}>{c.users}</td>
+                <td style={{ ...td, fontFamily: "var(--font-mono)" }}>{c.pricing}</td>
+                <td style={{ ...td, fontFamily: "var(--font-mono)" }}>{c.growth}</td>
+                <td style={td}>{c.strength}</td>
+                <td style={{ ...td, color: "var(--text-3)" }}>{c.weakness}</td>
+                <td style={td}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 60, height: 4, background: "var(--bg-mute)", borderRadius: 99 }}>
+                      <div style={{ width: `${c.threatScore}%`, height: "100%", background: c.threatScore > 60 ? "var(--warn)" : "var(--text)", borderRadius: 99 }} />
+                    </div>
+                    <span className="mono text-xs">{c.threatScore}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="card soft">
+        <div className="card-title"><AgentTag name="Helix" /> 市场空缺 & 定位</div>
+        <div className="mt-12" style={{ fontSize: 13, lineHeight: 1.7 }}>
+          <strong>空缺：</strong>{r.marketGap}<br />
+          <strong>定位：</strong>{r.positioning}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function FeasibilityTab({ v }: { v: DirectionValidation | undefined }) {
+  const ph = <PlaceholderCard v={v} />;
+  if (!v || v.status !== "COMPLETED" || !v.result) return ph;
+  const r = v.result as FeasibilityAnalysis;
+  const goTone = r.goNoGo === "go" ? "success" : r.goNoGo === "conditional" ? "ai" : "warn";
+  return (
+    <div className="grid-2" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="card-title"><Icon name="settings" size={14} /> 资源 / 能力差距</div>
+        <ul style={{ paddingLeft: 0, listStyle: "none", margin: "12px 0 0" }}>
+          {r.resources.map((res, i) => (
+            <li key={i} style={{ padding: "10px 0", borderBottom: i === r.resources.length - 1 ? "none" : "1px dashed var(--border)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <strong style={{ width: 80 }}>{res.kind}</strong>
+                <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-2)" }}>{res.need}</span>
+                <span className="mono text-xs">{"★".repeat(res.gapStars)}{"☆".repeat(5 - res.gapStars)}</span>
+              </div>
+              <div className="muted text-xs" style={{ marginLeft: 88, marginTop: 4 }}>当前：{res.founderHas}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <div className="card mb-12">
+          <div className="card-title"><Icon name="rocket" size={14} /> 6 个月里程碑</div>
+          <div className="mt-12">
+            {r.milestones.map((m, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "70px 1fr auto", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: i === r.milestones.length - 1 ? "none" : "1px dashed var(--border)" }}>
+                <span className="mono text-xs" style={{ color: "var(--text-3)" }}>{m.window}</span>
+                <span style={{ fontSize: 13 }}>{m.title}</span>
+                {m.metric && <span className="mono text-xs" style={{ color: "var(--accent)" }}>{m.metric}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-title"><Icon name="flag" size={14} /> 执行风险 / 判断</div>
+          <ul style={{ paddingLeft: 18, margin: "12px 0", fontSize: 13 }}>
+            {r.rampUpRisks.map((x, i) => <li key={i} style={{ marginBottom: 4 }}>{x}</li>)}
+          </ul>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+            <span className={`tag ${goTone}`} style={{ fontSize: 12 }}>
+              <span className="dot" /> {r.goNoGo.toUpperCase()}
+            </span>
+            <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>{r.rationale}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserTab({ v }: { v: DirectionValidation | undefined }) {
+  const ph = <PlaceholderCard v={v} />;
+  if (!v || v.status !== "COMPLETED" || !v.result) return ph;
+  const r = v.result as UserAnalysis;
+  return (
+    <>
+      <div className="card flush mb-12">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ background: "var(--bg-soft)", color: "var(--text-3)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {["合成人物", "角色", "为什么用", "付费意愿", "金句"].map(h => <th key={h} style={th}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {r.personas.map((p, i) => (
+              <tr key={i} style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                <td style={td}><strong>{p.name}</strong></td>
+                <td style={{ ...td, color: "var(--text-3)" }}>{p.role}</td>
+                <td style={{ ...td, fontSize: 12.5 }}>{p.why}</td>
+                <td style={td}>{"★".repeat(p.payIntent)}{"☆".repeat(5 - p.payIntent)}</td>
+                <td style={{ ...td, fontSize: 12.5, color: "var(--text-2)", maxWidth: 320 }}>「{p.quote}」</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid-2" style={{ gap: 12 }}>
+        <div className="card">
+          <div className="card-title"><Icon name="flag" size={14} /> 共同顾虑</div>
+          <ul style={{ paddingLeft: 18, margin: "12px 0", fontSize: 13 }}>
+            {r.topConcerns.map((c, i) => <li key={i} style={{ marginBottom: 4 }}>{c}</li>)}
+          </ul>
+        </div>
+        <div className="card">
+          <div className="card-title"><AgentTag name="Helix" /> 提炼关键词</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+            {r.topKeywords.map((k, i) => (
+              <span key={i} className="tag" style={{ fontSize: `${11 + k.weight * 0.3}px`, padding: "4px 9px" }}>
+                {k.word} <span className="mono muted" style={{ marginLeft: 4 }}>{k.weight}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

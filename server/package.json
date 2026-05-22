@@ -1,0 +1,35 @@
+{
+  "name": "@lumenedu/server",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "worker": "tsx watch --env-file=.env src/worker/index.ts",
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').cpSync('src/db/schema.sql','dist/db/schema.sql')\"",
+    "start": "node --env-file=.env dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:reset": "node --env-file=.env -e \"import('pg').then(({default:pg})=>{const p=new pg.Pool({connectionString:process.env.DATABASE_URL});p.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public').then(()=>{console.log('schema dropped');return p.end();});})\""
+  },
+  "dependencies": {
+    "@temporalio/activity": "^1.11.6",
+    "@temporalio/client": "^1.11.6",
+    "@temporalio/worker": "^1.11.6",
+    "@temporalio/workflow": "^1.11.6",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "langfuse": "^3.37.0",
+    "openai": "^4.77.3",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
