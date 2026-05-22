@@ -11,7 +11,7 @@ const CATS = ["全部", "内容生产", "渠道发布", "用户研究", "用户�
 
 export function SkillsView() {
   const { openDrawer, toast } = useUI();
-  const { data } = useAsync(() => api.skills(), []);
+  const { data, refresh } = useAsync(() => api.skills(), []);
   const all = data ?? [];
   const [cat, setCat] = useState<(typeof CATS)[number]>("全部");
   const items = all.filter(s => cat === "全部" || s.cat === cat);
@@ -36,6 +36,13 @@ export function SkillsView() {
                 { name: "output", label: "输出", placeholder: "例如：post_url" },
               ]}
               submitLabel="注册 Skill"
+              onSubmit={async v => {
+                await api.skillCreate({
+                  name: v.name!, cat: v.cat ?? "内容生产",
+                  input: v.input ?? "", output: v.output ?? "",
+                });
+                await refresh();
+              }}
               successMsg={v => `已注册 Skill「${v.name}」· 即开即用`}
             />,
           })}><Icon name="plus" size={14} /> 新建 Skill</button>
@@ -61,7 +68,7 @@ export function SkillsView() {
         <div className="skill-grid">
           {items.map(s => (
             <div key={s.id} className="skill-card" onClick={() => openDrawer({
-              eyebrow: s.cat, title: s.name, sub: s.desc, body: <SkillDrawer s={s} />,
+              eyebrow: s.cat, title: s.name, sub: s.desc, body: <SkillDrawer s={s} onChange={refresh} />,
             })}>
               <div className="skill-head">
                 <div className="skill-emoji">{s.emoji}</div>
@@ -102,7 +109,8 @@ export function SkillsView() {
   );
 }
 
-function SkillDrawer({ s }: { s: SkillItem }) {
+function SkillDrawer({ s, onChange }: { s: SkillItem; onChange: () => Promise<void> }) {
+  const { toast, closeDrawer } = useUI();
   return (
     <div>
       <div className="grid-2" style={{ gap: 8 }}>
@@ -126,6 +134,16 @@ function SkillDrawer({ s }: { s: SkillItem }) {
           <div className="version-row"><span className="tag success"><span className="dot" />OK</span><span>从 draft v2 → post_url</span><span className="muted mono" style={{ marginLeft: "auto", fontSize: 11 }}>1 小时前</span></div>
           <div className="version-row"><span className="tag warn"><span className="dot" />WARN</span><span>响应慢 4.8s · 待优化</span><span className="muted mono" style={{ marginLeft: "auto", fontSize: 11 }}>3 小时前</span></div>
         </div>
+      </div>
+      <div className="mt-16" style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button className="btn ghost" onClick={async () => {
+          try {
+            await api.skillRemove(s.id);
+            await onChange();
+            toast(`已注销 Skill「${s.name}」`, "warn");
+            closeDrawer();
+          } catch (e) { toast(`删除失败：${e instanceof Error ? e.message : String(e)}`, "warn"); }
+        }}><Icon name="x" size={12} /> 注销 Skill</button>
       </div>
     </div>
   );

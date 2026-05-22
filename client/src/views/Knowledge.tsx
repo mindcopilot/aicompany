@@ -11,7 +11,7 @@ const TABS: KnowledgeItem["kind"][] = ["想法", "访谈", "竞品", "博客", "
 
 export function KnowledgeView() {
   const { openDrawer, toast } = useUI();
-  const { data } = useAsync(() => api.knowledge(), []);
+  const { data, refresh } = useAsync(() => api.knowledge(), []);
   const all = data ?? [];
   const [tab, setTab] = useState<"全部" | KnowledgeItem["kind"]>("全部");
   const [q, setQ] = useState("");
@@ -39,8 +39,13 @@ export function KnowledgeView() {
                 { name: "title", label: "标题", placeholder: "例如：用户访谈 #015 · 关于定价" },
                 { name: "kind", label: "类型", type: "select", options: ["想法", "访谈", "竞品", "博客", "文件"] },
                 { name: "content", label: "内容", type: "textarea", placeholder: "粘贴原文或要点……" },
+                { name: "tags", label: "标签（逗号分隔，可选）", placeholder: "例如：定价, 用户研究" },
               ]}
               submitLabel="入库并向量化"
+              onSubmit={async v => {
+                await api.knowledgeCreate({ title: v.title!, kind: v.kind!, content: v.content ?? "", tags: v.tags });
+                await refresh();
+              }}
               successMsg={v => `已入库「${v.title}」· Helix 正在向量化`}
             />,
           })}><Icon name="plus" size={14} /> 新建条目</button>
@@ -69,7 +74,7 @@ export function KnowledgeView() {
           <div className="kb-list">
             {items.map(k => (
               <div key={k.id} className="kb-item" onClick={() => openDrawer({
-                eyebrow: k.kind, title: k.title, sub: k.source, body: <KBDrawerBody k={k} />,
+                eyebrow: k.kind, title: k.title, sub: k.source, body: <KBDrawerBody k={k} onChange={refresh} />,
               })}>
                 <div className="kb-kind"><KBKindIcon kind={k.kind} /><span>{k.kind}</span></div>
                 <div>
@@ -150,7 +155,8 @@ function RefRow({ agent, what, obj, t }: { agent: string; what: string; obj: str
   );
 }
 
-function KBDrawerBody({ k }: { k: KnowledgeItem }) {
+function KBDrawerBody({ k, onChange }: { k: KnowledgeItem; onChange: () => Promise<void> }) {
+  const { toast, closeDrawer } = useUI();
   return (
     <div>
       <div className="card soft" style={{ fontSize: 13.5, lineHeight: 1.7 }}>{k.snippet}</div>
@@ -167,6 +173,16 @@ function KBDrawerBody({ k }: { k: KnowledgeItem }) {
       <div className="mt-16">
         <div className="muted text-xs mono" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>来源</div>
         <div className="mt-8" style={{ fontSize: 13 }}>{k.source}</div>
+      </div>
+      <div className="mt-16" style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button className="btn ghost" onClick={async () => {
+          try {
+            await api.knowledgeRemove(k.id);
+            await onChange();
+            toast(`已删除知识条目「${k.title}」`, "warn");
+            closeDrawer();
+          } catch (e) { toast(`删除失败：${e instanceof Error ? e.message : String(e)}`, "warn"); }
+        }}><Icon name="x" size={12} /> 删除条目</button>
       </div>
     </div>
   );

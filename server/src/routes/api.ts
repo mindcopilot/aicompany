@@ -4,7 +4,13 @@ import {
   getCopilotInit,
   getKnowledge, getPrompts, getSkills, getAgents, getRunsToday, getAutomations,
   getTracks, getJobs, getModels, getLibrary,
+  createKnowledge, deleteKnowledge,
+  createPrompt, deletePrompt,
+  createSkill, deleteSkill,
+  createAgent, deleteAgent,
+  createAutomation, setAutomationOn, deleteAutomation,
 } from "../db/queries.js";
+import type { KnowledgeItem } from "../types.js";
 import { runCopilotTurn } from "../copilot.js";
 import { bearerToken, getSessionByToken } from "../auth.js";
 
@@ -57,6 +63,144 @@ router.get("/skills",      async (_req, res, next) => { try { res.json(await get
 router.get("/agents",      async (_req, res, next) => { try { res.json(await getAgents());      } catch (e) { next(e); } });
 router.get("/runs-today",  async (_req, res, next) => { try { res.json(await getRunsToday());   } catch (e) { next(e); } });
 router.get("/automations", async (_req, res, next) => { try { res.json(await getAutomations()); } catch (e) { next(e); } });
+
+// ---------------------------------------------------------------------------
+// AI assets — write endpoints. Entries created here persist to the database.
+// ---------------------------------------------------------------------------
+
+const KNOWLEDGE_KINDS: KnowledgeItem["kind"][] = ["想法", "访谈", "竞品", "博客", "文件"];
+
+function parseVars(body: string): string[] {
+  const found = new Set<string>();
+  for (const m of body.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) found.add(m[1]!.trim());
+  return [...found];
+}
+
+function parseTags(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.filter((t): t is string => typeof t === "string");
+  if (typeof raw === "string") {
+    return raw.split(/[,，\s]+/).map(t => t.replace(/^#/, "").trim()).filter(Boolean);
+  }
+  return [];
+}
+
+router.post("/knowledge", async (req, res, next) => {
+  try {
+    const b = req.body as { title?: unknown; kind?: unknown; content?: unknown; tags?: unknown; source?: unknown };
+    const title = String(b?.title ?? "").trim();
+    const content = String(b?.content ?? "").trim();
+    if (!title) { res.status(400).json({ error: "title is required" }); return; }
+    const kind = KNOWLEDGE_KINDS.includes(b?.kind as KnowledgeItem["kind"])
+      ? (b.kind as KnowledgeItem["kind"]) : "想法";
+    res.json(await createKnowledge({
+      kind, title, snippet: content || title, tags: parseTags(b?.tags),
+      source: typeof b?.source === "string" && b.source.trim() ? b.source.trim() : undefined,
+    }));
+  } catch (e) { next(e); }
+});
+
+router.delete("/knowledge/:id", async (req, res, next) => {
+  try {
+    const ok = await deleteKnowledge(req.params.id!);
+    if (!ok) { res.status(404).json({ error: "not found" }); return; }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.post("/prompts", async (req, res, next) => {
+  try {
+    const b = req.body as { name?: unknown; cat?: unknown; body?: unknown };
+    const name = String(b?.name ?? "").trim();
+    const body = String(b?.body ?? "").trim();
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    res.json(await createPrompt({
+      name, cat: String(b?.cat ?? "内容创作").trim() || "内容创作",
+      body, vars: parseVars(body),
+    }));
+  } catch (e) { next(e); }
+});
+
+router.delete("/prompts/:id", async (req, res, next) => {
+  try {
+    const ok = await deletePrompt(req.params.id!);
+    if (!ok) { res.status(404).json({ error: "not found" }); return; }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.post("/skills", async (req, res, next) => {
+  try {
+    const b = req.body as { name?: unknown; cat?: unknown; input?: unknown; output?: unknown };
+    const name = String(b?.name ?? "").trim();
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    res.json(await createSkill({
+      name, cat: String(b?.cat ?? "内容生产").trim() || "内容生产",
+      input: String(b?.input ?? "").trim() || "—",
+      output: String(b?.output ?? "").trim() || "—",
+    }));
+  } catch (e) { next(e); }
+});
+
+router.delete("/skills/:id", async (req, res, next) => {
+  try {
+    const ok = await deleteSkill(req.params.id!);
+    if (!ok) { res.status(404).json({ error: "not found" }); return; }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.post("/agents", async (req, res, next) => {
+  try {
+    const b = req.body as { name?: unknown; role?: unknown; schedule?: unknown };
+    const name = String(b?.name ?? "").trim();
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    res.json(await createAgent({
+      name, role: String(b?.role ?? "").trim() || "通用 · General",
+      schedule: String(b?.schedule ?? "").trim() || "常驻待命",
+    }));
+  } catch (e) { next(e); }
+});
+
+router.delete("/agents/:id", async (req, res, next) => {
+  try {
+    const ok = await deleteAgent(req.params.id!);
+    if (!ok) { res.status(404).json({ error: "not found" }); return; }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.post("/automations", async (req, res, next) => {
+  try {
+    const b = req.body as { name?: unknown; trigger?: unknown; action?: unknown };
+    const name = String(b?.name ?? "").trim();
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    const triggerText = String(b?.trigger ?? "").trim() || "手动触发";
+    const action = String(b?.action ?? "").trim() || "执行任务";
+    res.json(await createAutomation({
+      name,
+      trigger: { kind: "自定义", text: triggerText },
+      steps: [{ agent: "Atlas", skill: "—", note: action }],
+    }));
+  } catch (e) { next(e); }
+});
+
+router.patch("/automations/:id", async (req, res, next) => {
+  try {
+    const b = req.body as { on?: unknown };
+    if (typeof b?.on !== "boolean") { res.status(400).json({ error: "on (boolean) is required" }); return; }
+    const updated = await setAutomationOn(req.params.id!, b.on);
+    if (!updated) { res.status(404).json({ error: "not found" }); return; }
+    res.json(updated);
+  } catch (e) { next(e); }
+});
+
+router.delete("/automations/:id", async (req, res, next) => {
+  try {
+    const ok = await deleteAutomation(req.params.id!);
+    if (!ok) { res.status(404).json({ error: "not found" }); return; }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
 
 router.get("/content/tracks",  async (_req, res, next) => { try { res.json(await getTracks());  } catch (e) { next(e); } });
 router.get("/content/jobs",    async (_req, res, next) => { try { res.json(await getJobs());    } catch (e) { next(e); } });

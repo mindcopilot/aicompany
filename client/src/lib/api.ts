@@ -73,6 +73,28 @@ export const api = {
   copilotInit:  () => get<CopilotMessage[]>("/copilot/init"),
   copilotSend:  (text: string) => post<CopilotMessage>("/copilot/message", { text }),
 
+  knowledgeCreate: (body: { title: string; kind: string; content: string; tags?: string }) =>
+                    post<KnowledgeItem>("/knowledge", body),
+  knowledgeRemove: (id: string) => del<{ ok: true }>(`/knowledge/${encodeURIComponent(id)}`),
+
+  promptCreate: (body: { name: string; cat: string; body: string }) =>
+                  post<PromptItem>("/prompts", body),
+  promptRemove: (id: string) => del<{ ok: true }>(`/prompts/${encodeURIComponent(id)}`),
+
+  skillCreate: (body: { name: string; cat: string; input: string; output: string }) =>
+                 post<SkillItem>("/skills", body),
+  skillRemove: (id: string) => del<{ ok: true }>(`/skills/${encodeURIComponent(id)}`),
+
+  agentCreate: (body: { name: string; role: string; schedule: string }) =>
+                 post<AgentProfile>("/agents", body),
+  agentRemove: (id: string) => del<{ ok: true }>(`/agents/${encodeURIComponent(id)}`),
+
+  automationCreate: (body: { name: string; trigger: string; action: string }) =>
+                       post<Automation>("/automations", body),
+  automationSetOn: (id: string, on: boolean) =>
+                       patch<Automation>(`/automations/${encodeURIComponent(id)}`, { on }),
+  automationRemove: (id: string) => del<{ ok: true }>(`/automations/${encodeURIComponent(id)}`),
+
   workflows: {
     scanDirections: (thesis?: string) =>
       post<WorkflowStartResp>("/workflows/scan-directions", thesis ? { thesis } : {}),
