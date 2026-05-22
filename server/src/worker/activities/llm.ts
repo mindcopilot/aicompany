@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { chat, parseJson } from "../../llm/client.js";
+import { appendWorkflowEvent } from "../../db/queries.js";
 import {
   HELIX_DIRECTION_SCAN, COPILOT_SYSTEM, COPILOT_ROUTER,
   HELIX_TRENDING_CONSOLIDATE, HELIX_EVALUATE_DIRECTION,
@@ -234,6 +235,30 @@ export async function llmEvaluateDirection(input: {
 
 // ----------------------- Deep validation activities -----------------------
 
+// Emit a timeline event right after a validation LLM call returns, so the live
+// process panel can show "DeepSeek responded" with real token usage. Timeline
+// logging is best-effort — a DB hiccup must never fail the analysis itself.
+async function noteValidationLlm(
+  workflowId: string,
+  kind: "market" | "competitor" | "feasibility" | "user",
+  label: string,
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number },
+): Promise<void> {
+  try {
+    await appendWorkflowEvent({
+      workflowId,
+      kind: "log",
+      activity: `validate:${kind}`,
+      message: `${label} · DeepSeek 已返回结构化结论`,
+      payload: usage
+        ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens }
+        : null,
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 const ScorePart = z.object({ value: z.string(), pct: z.number().min(0).max(100) });
 
 const MarketSchema = z.object({
@@ -258,6 +283,7 @@ export async function llmValidateMarket(input: {
     temperature: 0.4, json: true,
     metadata: { direction: input.direction.title },
   });
+  await noteValidationLlm(input.workflowId, "market", "市场分析", res.usage);
   return MarketSchema.parse(parseJson(res.content));
 }
 
@@ -290,6 +316,7 @@ export async function llmValidateCompetitor(input: {
     temperature: 0.4, json: true,
     metadata: { direction: input.direction.title },
   });
+  await noteValidationLlm(input.workflowId, "competitor", "竞品分析", res.usage);
   return CompetitorSchema.parse(parseJson(res.content));
 }
 
@@ -324,6 +351,7 @@ export async function llmValidateFeasibility(input: {
     temperature: 0.4, json: true,
     metadata: { direction: input.direction.title },
   });
+  await noteValidationLlm(input.workflowId, "feasibility", "可行性分析", res.usage);
   // Strip undefined `metric` keys for clean storage.
   const parsed = FeasibilitySchema.parse(parseJson(res.content));
   return {
@@ -358,6 +386,7 @@ export async function llmValidateUser(input: {
     temperature: 0.5, json: true,
     metadata: { direction: input.direction.title },
   });
+  await noteValidationLlm(input.workflowId, "user", "用户合成", res.usage);
   return UserSchema.parse(parseJson(res.content));
 }
 

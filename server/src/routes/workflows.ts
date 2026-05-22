@@ -68,7 +68,7 @@ router.get("/:id", async (req, res, next) => {
   try {
     const run = await getWorkflowRun(req.params.id!);
     if (!run) { res.status(404).json({ error: "not found" }); return; }
-    const events = await listWorkflowEvents(run.id, 50);
+    const events = await listWorkflowEvents(run.id, 200);
     res.json({ run, events });
   } catch (e) { next(e); }
 });

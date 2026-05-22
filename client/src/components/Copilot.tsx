@@ -5,8 +5,7 @@ import type { CopilotMessage } from "../types/api";
 
 const CTX_HINT: Record<string, string> = {
   dashboard: "全局 Dashboard",
-  direction: "方向选择",
-  validation: "方向论证",
+  direction: "方向选择与论证",
   product: "业务线上化",
   content: "内容工厂",
   traffic: "流量分发",
@@ -21,8 +20,7 @@ const CTX_HINT: Record<string, string> = {
 
 const SUGGESTIONS: Record<string, string[]> = {
   dashboard:   ["本周最值得关注什么？", "帮我准备周一晨会议题", "我现在该做什么"],
-  direction:   ["把候选方向再扩展 3 个", "为什么不推荐 No-Code", "锁定 Indie 方向"],
-  validation:  ["再扫 5 个竞品", "约 3 个用户访谈", "导出论证报告"],
+  direction:   ["对这条方向做 4 维深度论证", "再扫 5 个竞品", "为什么不推荐 No-Code"],
   product:     ["让 Nova 重写课程 #6", "为 #11 生成 3 版封面", "起草 SUB-YEAR 的定价"],
   traffic:     ["把 B 站接进来", "生成本周排期", "为爆款笔记起 5 个相似选题"],
   reach:       ["针对沉默用户写一封唤回信", "新建生日关怀自动化", "导出付费用户列表"],
