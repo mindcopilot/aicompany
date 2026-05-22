@@ -41,7 +41,10 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 async function del<T>(path: string): Promise<T> {
   return mutate<T>("DELETE", path);
 }
-async function mutate<T>(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
+async function put<T>(path: string, body: unknown): Promise<T> {
+  return mutate<T>("PUT", path, body);
+}
+async function mutate<T>(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -110,7 +113,7 @@ export const api = {
 
   founderProfile: {
     get:  () => get<FounderProfile | null>("/founder-profile"),
-    save: (p: FounderProfile) => mutate<FounderProfile>("PUT", "/founder-profile", p),
+    save: (p: FounderProfile) => put<FounderProfile>("/founder-profile", p),
   },
 
   myDirections: {
