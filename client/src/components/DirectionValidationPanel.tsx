@@ -78,11 +78,13 @@ interface PanelProps {
   onReloadValidations: () => void;
   /** Fired once when the workflow reaches a terminal status. */
   onWorkflowTerminal: (run: WorkflowRun) => void;
+  /** Hand this direction off into 业务线上化 once validation passes. */
+  onGotoProduct?: (directionId: string) => void;
 }
 
 export function DirectionValidationPanel({
   direction, validations, workflowId, busy,
-  onStart, onReloadValidations, onWorkflowTerminal,
+  onStart, onReloadValidations, onWorkflowTerminal, onGotoProduct,
 }: PanelProps) {
   const [tab, setTab] = useState<ValidationKind>("market");
 
@@ -100,6 +102,7 @@ export function DirectionValidationPanel({
   }, [validations]);
 
   const hasAny = validations.length > 0;
+  const allValidated = validations.length === 4 && validations.every(v => v.status === "COMPLETED");
 
   return (
     <div style={{
@@ -116,6 +119,26 @@ export function DirectionValidationPanel({
           {busy ? "论证中…" : hasAny ? "重新论证" : "开始 4 维论证"}
         </button>
       </div>
+
+      {/* ---- handoff banner — validation passed, next stop 业务线上化 ---- */}
+      {allValidated && onGotoProduct && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "11px 13px", borderRadius: 8,
+          background: "var(--accent-soft)", border: "1px solid var(--accent)",
+        }}>
+          <span style={{ color: "var(--success)", display: "flex" }}>
+            <Icon name="check" size={16} stroke={2.4} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>4 维论证已通过</div>
+            <div className="muted text-xs">下一步 · 进入业务线上化，设计运营体系与流量获取手段</div>
+          </div>
+          <button className="btn sm primary" onClick={() => onGotoProduct(direction.id)}>
+            进入业务线上化 <Icon name="arrowRight" size={12} stroke={2} />
+          </button>
+        </div>
+      )}
 
       {/* ---- live process panel ---- */}
       {workflowId && (

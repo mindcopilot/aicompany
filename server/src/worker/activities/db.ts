@@ -15,11 +15,17 @@ import {
   upsertValidationStart as dbUpsertValidationStart,
   upsertValidationDone as dbUpsertValidationDone,
   upsertValidationFail as dbUpsertValidationFail,
+  listDirectionValidations as dbListDirectionValidations,
+  upsertDesignStart as dbUpsertDesignStart,
+  upsertDesignDone as dbUpsertDesignDone,
+  upsertDesignFail as dbUpsertDesignFail,
+  replaceDeliveryTickets as dbReplaceDeliveryTickets,
 } from "../../db/queries.js";
 import type {
   Direction, FounderProfile, WorkflowStatus, CopilotMessage,
   MyDirection, DirectionEvaluation,
-  ValidationKind, ValidationResult,
+  ValidationKind, ValidationResult, DirectionValidation,
+  DesignKind, DesignResult, DeliveryTarget,
 } from "../../types.js";
 
 export async function ensureWorkflowRun(input: {
@@ -129,4 +135,50 @@ export async function markValidationFail(input: {
   directionId: string; kind: ValidationKind; error: string;
 }): Promise<void> {
   await dbUpsertValidationFail(input);
+}
+
+// ----------------------- 业务线上化 design helpers -----------------------
+
+export async function loadDirectionValidations(directionId: string): Promise<DirectionValidation[]> {
+  return dbListDirectionValidations(directionId);
+}
+
+export async function markDesignStart(input: {
+  directionId: string; kind: DesignKind; workflowId: string;
+}): Promise<void> {
+  await dbUpsertDesignStart(input);
+}
+
+export async function markDesignDone(input: {
+  directionId: string; kind: DesignKind; result: DesignResult;
+}): Promise<void> {
+  await dbUpsertDesignDone(input);
+}
+
+export async function markDesignFail(input: {
+  directionId: string; kind: DesignKind; error: string;
+}): Promise<void> {
+  await dbUpsertDesignFail(input);
+}
+
+// Persist the deliverables a finished design hands to the execution modules.
+// IDs are generated here (an activity) — workflows must stay deterministic.
+export async function writeDeliveryTickets(input: {
+  directionId: string;
+  sourceKind: DesignKind;
+  deliverables: Array<{ target: DeliveryTarget; title: string; detail: string }>;
+}): Promise<number> {
+  const stamp = Date.now().toString(36);
+  const tickets = input.deliverables.map((d, i) => ({
+    id: `del-${input.sourceKind}-${stamp}-${i}`,
+    target: d.target,
+    title: d.title,
+    detail: d.detail,
+  }));
+  await dbReplaceDeliveryTickets({
+    directionId: input.directionId,
+    sourceKind: input.sourceKind,
+    tickets,
+  });
+  return tickets.length;
 }

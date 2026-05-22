@@ -9,7 +9,12 @@ import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
 import type { MyDirection, TrendingDirection, DirectionValidation, WorkflowRun } from "../types/api";
 
-export function DirectionView() {
+interface Props {
+  /** Hand a validation-passed direction off into 业务线上化. */
+  onGotoProduct?: (directionId: string) => void;
+}
+
+export function DirectionView({ onGotoProduct }: Props = {}) {
   const { openDrawer, toast } = useUI();
   const { data: mineData, refresh: refreshMine } = useAsync(() => api.myDirections.list(), []);
   const { data: trendingData, refresh: refreshTrendingList } = useAsync(() => api.trendingDirections.list(), []);
@@ -193,6 +198,7 @@ export function DirectionView() {
                   onEvalTerminal={onEvalTerminal(d.id)}
                   onEdit={() => openEdit(d)}
                   onDelete={() => onDelete(d)}
+                  onGotoProduct={onGotoProduct}
                 />
               ))}
             </div>
@@ -255,13 +261,14 @@ export function DirectionView() {
 // always agree.
 // ============================================================================
 
-function MyDirectionCard({ d, evalWorkflowId, onEvaluate, onEvalTerminal, onEdit, onDelete }: {
+function MyDirectionCard({ d, evalWorkflowId, onEvaluate, onEvalTerminal, onEdit, onDelete, onGotoProduct }: {
   d: MyDirection;
   evalWorkflowId: string | undefined;
   onEvaluate: () => void;
   onEvalTerminal: (run: WorkflowRun) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onGotoProduct?: (directionId: string) => void;
 }) {
   const { toast } = useUI();
   const ev = d.evaluation;
@@ -391,6 +398,7 @@ function MyDirectionCard({ d, evalWorkflowId, onEvaluate, onEvalTerminal, onEdit
           onStart={onStart}
           onReloadValidations={loadValidations}
           onWorkflowTerminal={onWorkflowTerminal}
+          onGotoProduct={onGotoProduct}
         />
       )}
     </div>

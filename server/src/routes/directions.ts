@@ -7,9 +7,11 @@ import { bearerToken, getSessionByToken } from "../auth.js";
 import {
   listMyDirections, createMyDirection, updateMyDirection, deleteMyDirection,
   getMyDirection, listTrendingDirections, getTrendingDirection,
-  listDirectionValidations,
+  listDirectionValidations, listBusinessDesigns,
+  listDeliveryTickets, updateDeliveryTicketStatus,
   createWorkflowRun,
 } from "../db/queries.js";
+import type { DeliveryTarget, DeliveryStatus } from "../types.js";
 import { getClient, taskQueue } from "../worker/connection.js";
 
 const router = Router();
@@ -167,6 +169,72 @@ router.get("/my-directions/:id/validations", async (req, res, next) => {
   try {
     const rows = await listDirectionValidations(req.params.id!);
     res.json(rows);
+  } catch (e) { next(e); }
+});
+
+// ----------------------- 业务线上化 design (运营体系 + 流量获取) -----------------------
+
+router.post("/my-directions/:id/design", async (req, res, next) => {
+  try {
+    const userId = await resolveUserId(req);
+    const direction = await getMyDirection(req.params.id!);
+    if (!direction) { res.status(404).json({ error: "not found" }); return; }
+    if (direction.userId !== userId) { res.status(403).json({ error: "not yours" }); return; }
+
+    const workflowId = `design-business::${direction.id}::${Date.now()}`;
+    const client = await getClient();
+    let handle;
+    try {
+      handle = await client.workflow.start("designBusinessWorkflow", {
+        taskQueue,
+        workflowId,
+        args: [{ userId, directionId: direction.id }],
+      });
+    } catch (err) {
+      res.status(503).json({
+        error: "workflow start failed — worker offline?",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    await createWorkflowRun({
+      id: workflowId, runId: handle.firstExecutionRunId,
+      workflowType: "designBusiness",
+      trigger: "user:design_business", userId,
+      input: { directionId: direction.id },
+      langfuseTraceId: workflowId,
+    });
+    res.json({ workflowId, runId: handle.firstExecutionRunId });
+  } catch (e) { next(e); }
+});
+
+router.get("/my-directions/:id/designs", async (req, res, next) => {
+  try {
+    res.json(await listBusinessDesigns(req.params.id!));
+  } catch (e) { next(e); }
+});
+
+// ----------------------- Delivery tickets (业务线上化 → 内容工厂 / 流量分发) -----------------------
+
+router.get("/delivery-tickets", async (req, res, next) => {
+  try {
+    const t = req.query.target;
+    const target = (t === "content" || t === "traffic") ? (t as DeliveryTarget) : undefined;
+    res.json(await listDeliveryTickets(target));
+  } catch (e) { next(e); }
+});
+
+router.patch("/delivery-tickets/:id", async (req, res, next) => {
+  try {
+    const body = req.body as { status?: unknown } | undefined;
+    const status = body?.status;
+    if (status !== "pending" && status !== "in_progress" && status !== "done") {
+      res.status(400).json({ error: "status must be pending | in_progress | done" });
+      return;
+    }
+    const updated = await updateDeliveryTicketStatus(req.params.id!, status as DeliveryStatus);
+    if (!updated) { res.status(404).json({ error: "not found" }); return; }
+    res.json(updated);
   } catch (e) { next(e); }
 });
 

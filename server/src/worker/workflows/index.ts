@@ -12,3 +12,6 @@ export type { EvaluateDirectionInput, EvaluateDirectionOutput } from "./evaluate
 
 export { validateDirectionWorkflow } from "./validate-direction.js";
 export type { ValidateDirectionInput, ValidateDirectionOutput } from "./validate-direction.js";
+
+export { designBusinessWorkflow } from "./design-business.js";
+export type { DesignBusinessInput, DesignBusinessOutput } from "./design-business.js";
