@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
 import { SignalCell } from "../components/primitives";
 import { useAsync } from "../hooks/useApi";
@@ -62,6 +62,14 @@ export function RunsView() {
   const runs = all.filter(r => filter === "all" || r.status === filter);
   const count = (s: WorkflowStatus): number => all.filter(r => r.status === s).length;
 
+  // Poll while any workflow is still in flight so the panel stays live.
+  const hasActive = all.some(r => r.status === "RUNNING" || r.status === "PENDING");
+  useEffect(() => {
+    if (!hasActive) return;
+    const id = window.setInterval(() => void refresh(), 5000);
+    return () => window.clearInterval(id);
+  }, [hasActive, refresh]);
+
   return (
     <>
       <div className="module-header">
@@ -71,7 +79,9 @@ export function RunsView() {
           <div className="module-sub">每一次 Agent 工作流的执行轨迹 — 状态、耗时、活动事件，全程可追溯。</div>
         </div>
         <div className="module-actions">
-          <span className="tag"><span className="dot" /> {all.length} 条记录</span>
+          {hasActive
+            ? <span className="tag warn"><span className="dot" /> 自动刷新中 · 每 5s</span>
+            : <span className="tag"><span className="dot" /> {all.length} 条记录</span>}
           <button className="btn" onClick={() => void refresh()}><Icon name="refresh" size={14} /> 刷新</button>
         </div>
       </div>

@@ -784,6 +784,28 @@ export async function deleteAutomation(id: string): Promise<boolean> {
   return (rowCount ?? 0) > 0;
 }
 
+export interface AssetCounts {
+  knowledge: number; prompts: number; skills: number; agents: number; automations: number;
+}
+
+export async function getAssetCounts(): Promise<AssetCounts> {
+  const { rows } = await query<{
+    knowledge: string; prompts: string; skills: string; agents: string; automations: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM knowledge)   AS knowledge,
+       (SELECT count(*) FROM prompts)     AS prompts,
+       (SELECT count(*) FROM skills)      AS skills,
+       (SELECT count(*) FROM agents)      AS agents,
+       (SELECT count(*) FROM automations) AS automations`
+  );
+  const r = rows[0]!;
+  return {
+    knowledge: Number(r.knowledge), prompts: Number(r.prompts), skills: Number(r.skills),
+    agents: Number(r.agents), automations: Number(r.automations),
+  };
+}
+
 export async function getLibrary(): Promise<LibraryItem[]> {
   const { rows } = await query<{
     id: string; track: LibraryItem["track"]; title: string; meta: string;

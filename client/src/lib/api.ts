@@ -6,7 +6,7 @@ import type {
   WorkflowStartResp, WorkflowGetResp, WorkflowRun, WorkflowStatus,
   MyDirection, TrendingDirection, DirectionValidation,
   BusinessDesign, DeliveryTicket, DeliveryTarget, DeliveryStatus,
-  FounderProfile,
+  FounderProfile, AssetCounts,
 } from "../types/api";
 
 const TOKEN_KEY = "lumenedu.token.v1";
@@ -98,6 +98,8 @@ export const api = {
   automationSetOn: (id: string, on: boolean) =>
                        patch<Automation>(`/automations/${encodeURIComponent(id)}`, { on }),
   automationRemove: (id: string) => del<{ ok: true }>(`/automations/${encodeURIComponent(id)}`),
+
+  assetCounts: () => get<AssetCounts>("/asset-counts"),
 
   workflows: {
     scanDirections: (thesis?: string) =>

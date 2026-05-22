@@ -282,6 +282,14 @@ export interface FounderProfile {
   thesis?: string;
 }
 
+export interface AssetCounts {
+  knowledge: number;
+  prompts: number;
+  skills: number;
+  agents: number;
+  automations: number;
+}
+
 export type WorkflowStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 export interface WorkflowRun {

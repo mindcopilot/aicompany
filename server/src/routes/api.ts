@@ -9,6 +9,7 @@ import {
   createSkill, deleteSkill,
   createAgent, deleteAgent,
   createAutomation, setAutomationOn, deleteAutomation,
+  getAssetCounts,
   listWorkflowRuns, getWorkflowRun, listWorkflowEvents,
   getFounderProfile, saveFounderProfile,
 } from "../db/queries.js";
@@ -211,6 +212,10 @@ router.delete("/automations/:id", async (req, res, next) => {
     if (!ok) { res.status(404).json({ error: "not found" }); return; }
     res.json({ ok: true });
   } catch (e) { next(e); }
+});
+
+router.get("/asset-counts", async (_req, res, next) => {
+  try { res.json(await getAssetCounts()); } catch (e) { next(e); }
 });
 
 // ---------------------------------------------------------------------------
