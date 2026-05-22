@@ -25,7 +25,7 @@ export function PromptsView() {
           <div className="module-sub">所有 Agent 共享的可版本化 prompt 库 · 含变量、A/B 实验与命中率。</div>
         </div>
         <div className="module-actions">
-          <span className="tag"><Icon name="git" size={11} /> 6 个变体在 A/B</span>
+          <span className="tag"><Icon name="git" size={11} /> {all.length} 个 prompt 在库</span>
           <button className="btn" onClick={() => toast("导入 · 从文件或其他项目批量导入 prompt")}><Icon name="download" size={14} /> 导入</button>
           <button className="btn primary" onClick={() => openDrawer({
             eyebrow: "NEW PROMPT", title: "新建 Prompt", sub: "创建一个可版本化、可 A/B 的 prompt",
@@ -114,9 +114,10 @@ export function PromptsView() {
             <div className="card-title"><Icon name="link" size={14} /> 变量字典</div>
             <div className="muted text-xs mb-8 mt-8">所有 prompt 中出现的占位符：</div>
             <div className="tag-cloud" style={{ marginTop: 6 }}>
-              {["主题", "受众", "上周CTR", "时长", "大纲", "原始文本", "竞品列表", "时间窗", "问题摘要", "上下文", "起止日期", "品牌 voice"].map(v => (
+              {[...new Set(all.flatMap(p => p.vars))].map(v => (
                 <span key={v} className="tag mono">{`{{${v}}}`}</span>
               ))}
+              {all.flatMap(p => p.vars).length === 0 && <span className="muted text-xs">暂无变量</span>}
             </div>
           </div>
         </div>

@@ -51,10 +51,10 @@ export function SkillsView() {
 
       <div className="module-body">
         <div className="grid-4" style={{ marginBottom: 16 }}>
-          <SignalCell n="14" l="可用 Skill" />
-          <SignalCell n="419" l="今日调用" />
-          <SignalCell n="89%" l="平均成功率" />
-          <SignalCell n="7" l="接入的外部工具" />
+          <SignalCell n={all.length} l="可用 Skill" />
+          <SignalCell n={all.reduce((s, x) => s + x.calls, 0)} l="今日调用" />
+          <SignalCell n={all.length ? `${Math.round(all.reduce((s, x) => s + x.success, 0) / all.length)}%` : "—"} l="平均成功率" />
+          <SignalCell n={new Set(all.flatMap(x => x.tools)).size} l="接入的外部工具" />
         </div>
 
         <div className="tabs">

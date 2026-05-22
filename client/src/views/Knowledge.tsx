@@ -57,7 +57,7 @@ export function KnowledgeView() {
           <div className="kb-search">
             <Icon name="search" size={16} />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="语义搜索：例如 “SQLite 备份” 或 “愿意付 ¥299 的用户”" />
-            <span className="muted text-xs mono">已索引 218 条 · 向量 v3</span>
+            <span className="muted text-xs mono">已索引 {all.length} 条 · 向量 v3</span>
           </div>
 
           <div className="tabs" style={{ marginTop: 18 }}>
@@ -95,8 +95,10 @@ export function KnowledgeView() {
           <div className="card">
             <div className="card-title"><Icon name="db" size={14} /> 知识库状态</div>
             <div className="grid-2 mt-12" style={{ gap: 8 }}>
-              <SignalCell n="218" l="总条目" /><SignalCell n="218" l="已向量化" />
-              <SignalCell n="1.4K" l="累计引用" /><SignalCell n="6" l="待整理" />
+              <SignalCell n={all.length} l="总条目" />
+              <SignalCell n={all.length} l="已向量化" />
+              <SignalCell n={all.reduce((s, k) => s + k.refs, 0)} l="累计引用" />
+              <SignalCell n={all.filter(k => k.refs === 0).length} l="待整理" />
             </div>
           </div>
 
