@@ -6,6 +6,18 @@ import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { ViewId } from "../components/Shell";
+import type { AgentName, ContentTrack } from "../types/api";
+
+function trackFromLabel(label: string): ContentTrack["id"] {
+  switch (label) {
+    case "短视频":   return "short";
+    case "长视频":   return "longvid";
+    case "音频":     return "audio";
+    case "图像":     return "image";
+    case "图文笔记": return "post";
+    default:         return "article";
+  }
+}
 
 interface Props {
   setActive: (id: ViewId) => void;
@@ -37,10 +49,19 @@ export function Dashboard({ setActive }: Props) {
               fields={[
                 { name: "title", label: "任务", placeholder: "例如：把课程 #6 返工一版" },
                 { name: "agent", label: "指派给", type: "select", options: ["Atlas", "Nova", "Helix", "Aria"] },
+                { name: "track", label: "产出形态", type: "select", options: ["长文", "短视频", "长视频", "音频", "图像", "图文笔记"] },
                 { name: "note", label: "补充说明", type: "textarea", placeholder: "目标、约束、参考资料……" },
               ]}
               submitLabel="创建任务"
               successMsg={v => `已把「${v.title}」派给 ${v.agent}`}
+              onSubmit={async v => {
+                await api.contentJobCreate({
+                  track: trackFromLabel(v.track ?? "长文"),
+                  title: v.title!,
+                  agent: v.agent as AgentName,
+                  note: v.note,
+                });
+              }}
             />,
           })}><Icon name="plus" size={14} /> 新建任务</button>
         </div>

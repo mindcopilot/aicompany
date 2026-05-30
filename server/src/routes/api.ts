@@ -3,17 +3,19 @@ import {
   getCompany, getDirections, getPipeline, getChannels, getFunnel, getActivity,
   getCopilotInit,
   getKnowledge, getPrompts, getSkills, getAgents, getRunsToday, getAutomations,
-  getTracks, getJobs, getModels, getLibrary,
+  getTracks, getJobs, getModels, getLibrary, createJob,
   createKnowledge, deleteKnowledge,
   createPrompt, deletePrompt,
   createSkill, deleteSkill,
   createAgent, deleteAgent,
   createAutomation, setAutomationOn, deleteAutomation,
+  createChannel,
+  listManagedModels, createManagedModel, setManagedModelEnabled,
   getAssetCounts,
   listWorkflowRuns, getWorkflowRun, listWorkflowEvents,
   getFounderProfile, saveFounderProfile,
 } from "../db/queries.js";
-import type { KnowledgeItem, WorkflowStatus, FounderProfile } from "../types.js";
+import type { KnowledgeItem, WorkflowStatus, FounderProfile, ContentJob, AgentName, ManagedModelCategory } from "../types.js";
 import { runCopilotTurn } from "../copilot.js";
 import { bearerToken, getSessionByToken } from "../auth.js";
 
@@ -67,6 +69,16 @@ router.get("/dashboard", async (_req, res, next) => {
 router.get("/directions", async (_req, res, next) => { try { res.json(await getDirections()); } catch (e) { next(e); } });
 router.get("/pipeline",   async (_req, res, next) => { try { res.json(await getPipeline());   } catch (e) { next(e); } });
 router.get("/channels",   async (_req, res, next) => { try { res.json(await getChannels());   } catch (e) { next(e); } });
+router.post("/channels", async (req, res, next) => {
+  try {
+    const b = req.body as { name?: unknown; handle?: unknown; mode?: unknown };
+    const name = String(b?.name ?? "").trim();
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    const handle = String(b?.handle ?? "").trim() || "—";
+    const mode = typeof b?.mode === "string" ? b!.mode : undefined;
+    res.json(await createChannel({ name, handle, mode }));
+  } catch (e) { next(e); }
+});
 router.get("/funnel",     async (_req, res, next) => { try { res.json(await getFunnel());     } catch (e) { next(e); } });
 
 router.get("/knowledge",   async (_req, res, next) => { try { res.json(await getKnowledge());   } catch (e) { next(e); } });
@@ -273,10 +285,79 @@ router.put("/founder-profile", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+const MANAGED_CATEGORIES: ManagedModelCategory[] = ["text", "image", "video", "audio", "embed"];
+const MANAGED_CATEGORY_LABEL: Record<string, ManagedModelCategory> = {
+  "对话 · 文本": "text", "图像": "image", "视频": "video",
+  "音频 · 语音": "audio", "向量 · 工具": "embed",
+};
+
+router.get("/managed-models", async (_req, res, next) => {
+  try { res.json(await listManagedModels()); } catch (e) { next(e); }
+});
+
+router.post("/managed-models", async (req, res, next) => {
+  try {
+    const b = req.body as { name?: unknown; vendor?: unknown; category?: unknown; modality?: unknown; context?: unknown; pricing?: unknown };
+    const name = String(b?.name ?? "").trim();
+    if (!name) { res.status(400).json({ error: "name is required" }); return; }
+    const vendor = String(b?.vendor ?? "").trim() || "未知";
+    const rawCat = String(b?.category ?? "").trim();
+    const category: ManagedModelCategory =
+      MANAGED_CATEGORIES.includes(rawCat as ManagedModelCategory) ? (rawCat as ManagedModelCategory)
+      : MANAGED_CATEGORY_LABEL[rawCat] ?? "text";
+    res.json(await createManagedModel({
+      name, vendor, category,
+      modality: typeof b?.modality === "string" ? b!.modality : undefined,
+      context:  typeof b?.context  === "string" ? b!.context  : undefined,
+      pricing:  typeof b?.pricing  === "string" ? b!.pricing  : undefined,
+    }));
+  } catch (e) { next(e); }
+});
+
+router.patch("/managed-models/:id", async (req, res, next) => {
+  try {
+    const b = req.body as { enabled?: unknown };
+    if (typeof b?.enabled !== "boolean") { res.status(400).json({ error: "enabled (boolean) is required" }); return; }
+    const updated = await setManagedModelEnabled(req.params.id!, b.enabled);
+    if (!updated) { res.status(404).json({ error: "not found" }); return; }
+    res.json(updated);
+  } catch (e) { next(e); }
+});
+
 router.get("/content/tracks",  async (_req, res, next) => { try { res.json(await getTracks());  } catch (e) { next(e); } });
 router.get("/content/jobs",    async (_req, res, next) => { try { res.json(await getJobs());    } catch (e) { next(e); } });
 router.get("/content/models",  async (_req, res, next) => { try { res.json(await getModels());  } catch (e) { next(e); } });
 router.get("/content/library", async (_req, res, next) => { try { res.json(await getLibrary()); } catch (e) { next(e); } });
+
+const TRACK_IDS: ContentJob["track"][] = ["article", "short", "longvid", "audio", "image", "post"];
+const AGENT_NAMES: AgentName[] = ["Atlas", "Nova", "Helix", "Aria"];
+
+router.post("/content/jobs", async (req, res, next) => {
+  try {
+    const b = req.body as { track?: unknown; title?: unknown; agent?: unknown; note?: unknown };
+    const title = String(b?.title ?? "").trim();
+    if (!title) { res.status(400).json({ error: "title is required" }); return; }
+    const track = TRACK_IDS.includes(b?.track as ContentJob["track"])
+      ? (b!.track as ContentJob["track"]) : "article";
+    const agent = AGENT_NAMES.includes(b?.agent as AgentName)
+      ? (b!.agent as AgentName) : undefined;
+    const note = typeof b?.note === "string" ? b!.note : undefined;
+    res.json(await createJob({ track, title, agent, note }));
+  } catch (e) { next(e); }
+});
+
+// "一次生成全套" — kick off 6 queued jobs, one per track, sharing a brief.
+router.post("/content/jobs/full-set", async (req, res, next) => {
+  try {
+    const b = req.body as { brief?: unknown };
+    const brief = String(b?.brief ?? "").trim() || "一次生成全套 · 主题待补充";
+    const created: ContentJob[] = [];
+    for (const track of TRACK_IDS) {
+      created.push(await createJob({ track, title: `${brief} · ${track}`, note: "一次生成全套 · 待启动" }));
+    }
+    res.json({ created });
+  } catch (e) { next(e); }
+});
 
 router.get("/copilot/init", async (req, res, next) => {
   try {

@@ -4,26 +4,41 @@ import { useAsync } from "../hooks/useApi";
 import { useUI } from "../lib/ui";
 import { api } from "../lib/api";
 import type { DrawerSpec } from "../components/Drawer";
+import type { Automation } from "../types/api";
 
-const newSequenceDrawer: DrawerSpec = {
-  eyebrow: "NEW SEQUENCE", title: "新建自动化触达", sub: "搭建一条按用户行为触发的 sequence",
-  body: <CreateForm
-    fields={[
-      { name: "name", label: "Sequence 名称", placeholder: "例如：试听 48h 未付费 · 二次转化" },
-      { name: "trigger", label: "触发事件", placeholder: "例如：试听完成 / 付费 7 天未登录" },
-      { name: "channel", label: "触达渠道", type: "select", options: ["企微", "邮件", "私信", "企微 + 邮件"] },
-      { name: "note", label: "内容要点", type: "textarea", placeholder: "希望 Aria 在触达里强调什么……" },
-    ]}
-    submitLabel="创建并交给 Aria"
-    successMsg={v => `已创建触达「${v.name}」· Aria 开始起草文案`}
-  />,
-};
+function newSequenceDrawer(onCreated: () => void | Promise<void>): DrawerSpec {
+  return {
+    eyebrow: "NEW SEQUENCE", title: "新建自动化触达", sub: "搭建一条按用户行为触发的 sequence",
+    body: <CreateForm
+      fields={[
+        { name: "name", label: "Sequence 名称", placeholder: "例如：试听 48h 未付费 · 二次转化" },
+        { name: "trigger", label: "触发事件", placeholder: "例如：试听完成 / 付费 7 天未登录" },
+        { name: "channel", label: "触达渠道", type: "select", options: ["企微", "邮件", "私信", "企微 + 邮件"] },
+        { name: "note", label: "内容要点", type: "textarea", placeholder: "希望 Aria 在触达里强调什么……" },
+      ]}
+      submitLabel="创建并交给 Aria"
+      successMsg={v => `已创建触达「${v.name}」· Aria 开始起草文案`}
+      onSubmit={async v => {
+        await api.automationCreate({
+          name: v.name!,
+          trigger: `${v.trigger ?? "—"} · ${v.channel ?? "企微"}`,
+          action: v.note?.trim() || "Aria 自动起草并发送",
+        });
+        await onCreated();
+      }}
+    />,
+  };
+}
 
 export function ReachView() {
   const { openDrawer, toast } = useUI();
   const { data: funnel } = useAsync(() => api.funnel(), []);
+  const { data: automations, refresh: reloadAutomations } = useAsync(() => api.automations(), []);
   const f = funnel ?? [];
   const max = f[0]?.count ?? 1;
+  const sequences = automations ?? [];
+  const liveCount = sequences.filter(a => a.on).length;
+  const draftCount = sequences.length - liveCount;
 
   return (
     <>
@@ -35,7 +50,7 @@ export function ReachView() {
         </div>
         <div className="module-actions">
           <button className="btn" onClick={() => toast("用户列表 · 99 位付费用户 · 已按 AI 分群")}><Icon name="users" size={14} /> 用户列表</button>
-          <button className="btn primary" onClick={() => openDrawer(newSequenceDrawer)}><Icon name="zap" size={14} /> 新建自动化</button>
+          <button className="btn primary" onClick={() => openDrawer(newSequenceDrawer(reloadAutomations))}><Icon name="zap" size={14} /> 新建自动化</button>
         </div>
       </div>
 
@@ -92,29 +107,22 @@ export function ReachView() {
 
         <div className="module-section">
           <div className="section-head">
-            <div className="section-title">自动化 SEQUENCES · 5 已上线</div>
-            <button className="btn sm" onClick={() => openDrawer(newSequenceDrawer)}><Icon name="plus" size={12} /> 新建</button>
+            <div className="section-title">自动化 SEQUENCES · {liveCount} 已上线{draftCount > 0 ? ` · ${draftCount} 草稿` : ""}</div>
+            <button className="btn sm" onClick={() => openDrawer(newSequenceDrawer(reloadAutomations))}><Icon name="plus" size={12} /> 新建</button>
           </div>
-          <div className="grid-3">
-            <AutoCard title="试听后 30 分钟 · 转化推送"
-              steps={["试听完成", "+30 min", "私信优惠", "未付费? → 邮件"]}
-              metric="转化率 18.4%" channel="企微 + 邮件" status="running" />
-            <AutoCard title="付费 7 天未登录 · 唤醒"
-              steps={["付费 +7d", "未登录", "AI 写专属唤回", "推送"]}
-              metric="唤回率 31.2%" channel="企微" status="running" />
-            <AutoCard title="完课 80% · 续费引导"
-              steps={["完课率 ≥80%", "私信感谢", "+24h 续费券", "1v1 跟进"]}
-              metric="续费率 44.6%" channel="企微 + 1v1" status="running" />
-            <AutoCard title="周一晨间 · 学习计划"
-              steps={["每周一 09:00", "AI 个性化计划", "推送"]}
-              metric="打开率 62.8%" channel="邮件" status="running" />
-            <AutoCard title="退款用户 · 离场访谈"
-              steps={["退款触发", "+1h 邮件", "免费 1v1 邀约"]}
-              metric="回收率 8.6%" channel="邮件" status="running" />
-            <AutoCard title="生日 / 周年 · 关怀"
-              steps={["注册周年", "AI 写问候", "送 1 节课"]}
-              metric="—" channel="邮件" status="draft" />
-          </div>
+          {sequences.length === 0
+            ? <div className="muted text-sm" style={{ padding: "20px 4px" }}>还没有 Sequence — 点右上的「新建自动化」开始一条。</div>
+            : (
+              <div className="grid-3">
+                {sequences.map(s => (
+                  <AutoCard key={s.id} a={s}
+                    onToggle={async () => {
+                      await api.automationSetOn(s.id, !s.on);
+                      reloadAutomations();
+                    }} />
+                ))}
+              </div>
+            )}
         </div>
 
         <div className="module-section">
@@ -147,25 +155,28 @@ export function ReachView() {
   );
 }
 
-function AutoCard({ title, steps, metric, channel, status }: { title: string; steps: string[]; metric: string; channel: string; status: "running" | "draft" }) {
+function AutoCard({ a, onToggle }: { a: Automation; onToggle: () => void | Promise<void> }) {
+  const triggerSummary = a.trigger?.text ?? "—";
   return (
     <div className="card">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <strong style={{ fontSize: 13.5 }}>{title}</strong>
-        {status === "running" ? <span className="tag success"><span className="dot" />running</span> : <span className="tag">draft</span>}
+        <strong style={{ fontSize: 13.5 }}>{a.name}</strong>
+        {a.on
+          ? <span className="tag success"><span className="dot" />running</span>
+          : <span className="tag">draft</span>}
       </div>
-      <div className="muted text-xs">{channel}</div>
+      <div className="muted text-xs">{triggerSummary}</div>
       <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-        {steps.map((s, i) => (
+        {a.steps.map((s, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-2)" }}>
             <span style={{ width: 16, height: 16, borderRadius: 99, background: "var(--bg-mute)", color: "var(--text-3)", display: "grid", placeItems: "center", fontSize: 9, fontFamily: "var(--font-mono)", fontWeight: 600 }}>{i + 1}</span>
-            <span>{s}</span>
+            <span>{s.note || `${s.agent} · ${s.skill}`}</span>
           </div>
         ))}
       </div>
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span className="muted text-xs">表现</span>
-        <strong className="mono text-sm">{metric}</strong>
+        <span className="muted text-xs">运行次数 · {a.runs}</span>
+        <button className="btn sm" onClick={() => void onToggle()}>{a.on ? "暂停" : "启用"}</button>
       </div>
     </div>
   );

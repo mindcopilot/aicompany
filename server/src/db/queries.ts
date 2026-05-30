@@ -3,6 +3,7 @@ import type {
   Company, Direction, PipelineStage, Channel, FunnelStep, ActivityItem, CopilotMessage,
   KnowledgeItem, PromptItem, SkillItem, AgentProfile, AgentRun, Automation,
   ContentTrack, ContentJob, ModelMatrix, LibraryItem,
+  ManagedModel, ManagedModelCategory,
   FounderProfile, WorkflowRun, WorkflowEvent, WorkflowStatus,
   MyDirection, TrendingDirection, DirectionEvaluation,
   DirectionValidation, ValidationKind, ValidationStatus, ValidationResult,
@@ -50,6 +51,25 @@ export async function getChannels(): Promise<Channel[]> {
     id: r.id, name: r.name, handle: r.handle, color: r.color, letter: r.letter,
     on: r.is_on, posts: r.posts, reach: r.reach, ctr: r.ctr,
   }));
+}
+
+const CHANNEL_PALETTE = ["#ef4444", "#f97316", "#16a34a", "#0891b2", "#4f46e5", "#9333ea", "#db2777", "#0a0a0a"];
+
+export async function createChannel(input: {
+  name: string; handle: string; mode?: string;
+}): Promise<Channel> {
+  const id = `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const { rows: posRows } = await query<{ max_pos: number | null }>(`SELECT MAX(position) AS max_pos FROM channels`);
+  const position = (posRows[0]?.max_pos ?? -1) + 1;
+  const color = CHANNEL_PALETTE[position % CHANNEL_PALETTE.length]!;
+  const letter = input.name.trim().charAt(0).toUpperCase() || "?";
+  const isOn = (input.mode ?? "").includes("自动");
+  await query(
+    `INSERT INTO channels (id, name, handle, color, letter, is_on, posts, reach, ctr, position)
+     VALUES ($1,$2,$3,$4,$5,$6,0,'—','—',$7)`,
+    [id, input.name, input.handle, color, letter, isOn, position]
+  );
+  return { id, name: input.name, handle: input.handle, color, letter, on: isOn, posts: 0, reach: "—", ctr: "—" };
 }
 
 export async function getFunnel(): Promise<FunnelStep[]> {
@@ -177,6 +197,38 @@ export async function getJobs(): Promise<ContentJob[]> {
     id: r.id, track: r.track, title: r.title, status: r.status, progress: r.progress,
     eta: r.eta, model: r.model, phase: r.phase, agent: r.agent, cost: r.cost,
   }));
+}
+
+const TRACK_DEFAULT_AGENT: Record<ContentJob["track"], ContentJob["agent"]> = {
+  article: "Nova", short: "Atlas", longvid: "Nova",
+  audio: "Nova", image: "Nova", post: "Atlas",
+};
+
+export async function createJob(input: {
+  track: ContentJob["track"]; title: string; agent?: ContentJob["agent"]; note?: string;
+}): Promise<ContentJob> {
+  const id = genId("j");
+  const { rows: trackRow } = await query<{ best_for: string }>(
+    `SELECT best_for FROM content_tracks WHERE id = $1`, [input.track]
+  );
+  const model = trackRow[0]?.best_for ?? "AI 自动路由";
+  const agent = input.agent ?? TRACK_DEFAULT_AGENT[input.track];
+  const phase = input.note?.trim() ? input.note.trim() : "排队等待启动";
+  const position = await nextJobPosition();
+  await query(
+    `INSERT INTO content_jobs (id, track, title, status, progress, eta, model, phase, agent, cost, position)
+     VALUES ($1,$2,$3,'queued',0,'排队中',$4,$5,$6,'—',$7)`,
+    [id, input.track, input.title, model, phase, agent, position]
+  );
+  return {
+    id, track: input.track, title: input.title, status: "queued", progress: 0,
+    eta: "排队中", model, phase, agent, cost: "—",
+  };
+}
+
+async function nextJobPosition(): Promise<number> {
+  const { rows } = await query<{ max_pos: number | null }>(`SELECT MAX(position) AS max_pos FROM content_jobs`);
+  return (rows[0]?.max_pos ?? -1) + 1;
 }
 
 export async function getModels(): Promise<ModelMatrix[]> {
@@ -804,6 +856,72 @@ export async function getAssetCounts(): Promise<AssetCounts> {
     knowledge: Number(r.knowledge), prompts: Number(r.prompts), skills: Number(r.skills),
     agents: Number(r.agents), automations: Number(r.automations),
   };
+}
+
+// ============================================================================
+// Managed models — 模型管理
+// ============================================================================
+
+interface ManagedModelRow {
+  id: string; name: string; vendor: string; category: ManagedModelCategory;
+  modality: string; context: string; pricing: string; rating: number; latency: string;
+  calls: number; spend: number; strengths: string; tags: string[];
+  enabled: boolean; default_for: string | null; color: string; position: number;
+}
+const rowToManagedModel = (r: ManagedModelRow): ManagedModel => ({
+  id: r.id, name: r.name, vendor: r.vendor, category: r.category,
+  modality: r.modality, context: r.context, pricing: r.pricing, rating: r.rating,
+  latency: r.latency, calls: r.calls, spend: r.spend, strengths: r.strengths,
+  tags: r.tags, enabled: r.enabled, defaultFor: r.default_for, color: r.color,
+});
+
+export async function listManagedModels(): Promise<ManagedModel[]> {
+  const { rows } = await query<ManagedModelRow>(
+    `SELECT id, name, vendor, category, modality, context, pricing, rating, latency,
+            calls, spend, strengths, tags, enabled, default_for, color, position
+     FROM managed_models ORDER BY position`);
+  return rows.map(rowToManagedModel);
+}
+
+const MANAGED_CATEGORIES: ManagedModelCategory[] = ["text", "image", "video", "audio", "embed"];
+
+export async function createManagedModel(input: {
+  name: string; vendor: string; category: ManagedModelCategory;
+  modality?: string; context?: string; pricing?: string;
+}): Promise<ManagedModel> {
+  if (!MANAGED_CATEGORIES.includes(input.category)) throw new Error("invalid category");
+  const id = `mm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const { rows: posRows } = await query<{ max_pos: number | null }>(
+    `SELECT MAX(position) AS max_pos FROM managed_models`);
+  const position = (posRows[0]?.max_pos ?? -1) + 1;
+  const palette = ["#4f46e5", "#0891b2", "#9333ea", "#16a34a", "#ea580c", "#0d9488"];
+  const color = palette[position % palette.length]!;
+  const modality = input.modality ?? "文本 → 文本";
+  const context = input.context ?? "—";
+  const pricing = input.pricing ?? "—";
+  await query(
+    `INSERT INTO managed_models
+       (id, name, vendor, category, modality, context, pricing, rating, latency,
+        calls, spend, strengths, tags, enabled, default_for, color, position)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,80,'—',0,0,'用户接入','[]'::jsonb,FALSE,NULL,$8,$9)`,
+    [id, input.name, input.vendor, input.category, modality, context, pricing, color, position]
+  );
+  return {
+    id, name: input.name, vendor: input.vendor, category: input.category,
+    modality, context, pricing, rating: 80, latency: "—",
+    calls: 0, spend: 0, strengths: "用户接入", tags: [],
+    enabled: false, defaultFor: null, color,
+  };
+}
+
+export async function setManagedModelEnabled(id: string, enabled: boolean): Promise<ManagedModel | null> {
+  const { rows } = await query<ManagedModelRow>(
+    `UPDATE managed_models SET enabled = $2 WHERE id = $1
+     RETURNING id, name, vendor, category, modality, context, pricing, rating, latency,
+               calls, spend, strengths, tags, enabled, default_for, color, position`,
+    [id, enabled]
+  );
+  return rows[0] ? rowToManagedModel(rows[0]) : null;
 }
 
 export async function getLibrary(): Promise<LibraryItem[]> {

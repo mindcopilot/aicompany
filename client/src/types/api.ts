@@ -83,6 +83,15 @@ export interface ModelMatrix {
   name: string; vendor: string; uses: string[]; rating: number; strengths: string;
   cost: string; calls: number; color: string;
 }
+
+export type ManagedModelCategory = "text" | "image" | "video" | "audio" | "embed";
+export interface ManagedModel {
+  id: string; name: string; vendor: string; category: ManagedModelCategory;
+  modality: string; context: string; pricing: string;
+  rating: number; latency: string; calls: number; spend: number;
+  strengths: string; tags: string[];
+  enabled: boolean; defaultFor: string | null; color: string;
+}
 export interface LibraryItem {
   id: string; track: ContentTrack["id"]; title: string; meta: string;
   time: string; cost: string; model: string;

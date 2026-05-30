@@ -2,11 +2,12 @@ import type {
   DashboardPayload, Direction, PipelineStage, Channel, FunnelStep,
   KnowledgeItem, PromptItem, SkillItem, AgentProfile, AgentRun, Automation,
   ContentTrack, ContentJob, ModelMatrix, LibraryItem, CopilotMessage,
+  ManagedModel,
   AuthSession, SendCodeResp, QrSceneResp, WechatPoll,
   WorkflowStartResp, WorkflowGetResp, WorkflowRun, WorkflowStatus,
   MyDirection, TrendingDirection, DirectionValidation,
   BusinessDesign, DeliveryTicket, DeliveryTarget, DeliveryStatus,
-  FounderProfile, AssetCounts,
+  FounderProfile, AssetCounts, AgentName,
 } from "../types/api";
 
 const TOKEN_KEY = "lumenedu.token.v1";
@@ -100,6 +101,20 @@ export const api = {
   automationRemove: (id: string) => del<{ ok: true }>(`/automations/${encodeURIComponent(id)}`),
 
   assetCounts: () => get<AssetCounts>("/asset-counts"),
+
+  channelCreate: (body: { name: string; handle: string; mode: string }) =>
+                    post<Channel>("/channels", body),
+
+  contentJobCreate: (body: { track: ContentTrack["id"]; title: string; agent?: AgentName; note?: string }) =>
+                    post<ContentJob>("/content/jobs", body),
+  contentJobFullSet: (brief: string) =>
+                    post<{ created: ContentJob[] }>("/content/jobs/full-set", { brief }),
+
+  managedModels:       () => get<ManagedModel[]>("/managed-models"),
+  managedModelCreate:  (body: { name: string; vendor: string; category: string }) =>
+                          post<ManagedModel>("/managed-models", body),
+  managedModelToggle:  (id: string, enabled: boolean) =>
+                          patch<ManagedModel>(`/managed-models/${encodeURIComponent(id)}`, { enabled }),
 
   workflows: {
     scanDirections: (thesis?: string) =>

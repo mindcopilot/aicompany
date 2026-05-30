@@ -11,22 +11,28 @@ import type { Channel } from "../types/api";
 
 export function TrafficView() {
   const { openDrawer, toast } = useUI();
-  const { data: channels } = useAsync(() => api.channels(), []);
+  const { data: channels, refresh: reloadChannels } = useAsync(() => api.channels(), []);
 
+  // Deterministic activity heatmap derived from actual channel volume.
+  // Each weekday-hour cell combines a lunch-peak and a night-peak gaussian,
+  // weighted by total active-channel posts so cells stay stable across renders.
   const intensity = useMemo(() => {
+    const activePosts = (channels ?? []).filter(c => c.on).reduce((s, c) => s + c.posts, 0);
+    const weight = Math.min(1, activePosts === 0 ? 0.4 : Math.log10(activePosts + 1) / 3);
     const r: number[][] = [];
     for (let i = 0; i < 7; i++) {
       const row: number[] = [];
+      const dayBias = i === 5 || i === 6 ? 1.05 : i === 0 ? 0.85 : 1; // weekends higher, Monday quieter
       for (let j = 0; j < 24; j++) {
         const peak1 = Math.exp(-Math.pow(j - 12, 2) / 8);
         const peak2 = Math.exp(-Math.pow(j - 20, 2) / 6);
-        const v = Math.min(1, (peak1 + peak2) * (0.6 + Math.random() * 0.4));
+        const v = Math.min(1, (peak1 + peak2) * weight * dayBias);
         row.push(v);
       }
       r.push(row);
     }
     return r;
-  }, []);
+  }, [channels]);
 
   return (
     <>
@@ -47,6 +53,14 @@ export function TrafficView() {
               ]}
               submitLabel="接入渠道"
               successMsg={v => `已接入渠道「${v.name}」· Atlas 开始适配内容格式`}
+              onSubmit={async v => {
+                await api.channelCreate({
+                  name: v.name!,
+                  handle: v.handle?.trim() || "—",
+                  mode: v.mode ?? "Atlas 自动改写发布",
+                });
+                await reloadChannels();
+              }}
             />,
           })}><Icon name="plus" size={14} /> 接入渠道</button>
           <button className="btn primary" onClick={() => toast("Atlas 已生成本周排期 · 18 篇内容已分配时段")}><Icon name="sparkle" size={14} /> 生成本周排期</button>
@@ -64,7 +78,7 @@ export function TrafficView() {
 
         <div className="module-section">
           <div className="section-head">
-            <div className="section-title">渠道矩阵 · 6 / 8 已激活</div>
+            <div className="section-title">渠道矩阵 · {(channels ?? []).filter(c => c.on).length} / {(channels ?? []).length} 已激活</div>
             <div className="seg"><button className="active">本周</button><button>本月</button><button>全部</button></div>
           </div>
           <div className="channel-grid">
