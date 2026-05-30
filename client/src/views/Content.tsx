@@ -8,6 +8,10 @@ import { api } from "../lib/api";
 import { DeliveryInbox } from "../components/DeliveryInbox";
 import type { ContentTrack, ContentJob, LibraryItem, ModelMatrix } from "../types/api";
 
+const FULL_SET_FIELDS = [
+  { name: "brief", label: "主题 / brief", type: "textarea" as const, placeholder: "例如：SQLite 边缘部署的 6 个反直觉做法，受众是 indie dev。" },
+];
+
 const LIB_FILTERS = ["全部", "文章", "短视频", "长视频", "音频", "图像", "海报"] as const;
 const FILTER_TRACK: Record<string, string> = {
   "文章": "article", "短视频": "short", "长视频": "longvid",
@@ -21,7 +25,7 @@ const JOB_STATUS: Record<string, ContentJob["status"]> = {
 export function ContentView() {
   const { openDrawer, toast } = useUI();
   const { data: tracks }  = useAsync(() => api.tracks(), []);
-  const { data: jobs }    = useAsync(() => api.jobs(), []);
+  const { data: jobs, refresh: reloadJobs }    = useAsync(() => api.jobs(), []);
   const { data: models }  = useAsync(() => api.models(), []);
   const { data: library } = useAsync(() => api.library(), []);
 
@@ -44,7 +48,14 @@ export function ContentView() {
         <div className="module-actions">
           <span className="tag ai"><span className="dot" /> 3 个任务运行中</span>
           <button className="btn" onClick={() => toast("模型偏好 · 当前按任务自动路由到最优模型")}><Icon name="sliders" size={14} /> 模型偏好</button>
-          <button className="btn primary" onClick={() => toast("已发起「一次生成全套」· 6 种形态将并行产出")}><Icon name="sparkle" size={14} /> 一次生成全套</button>
+          <button className="btn primary" onClick={() => openDrawer({
+            eyebrow: "FULL SET", title: "一次生成全套", sub: "一个 brief → 6 种形态 · 全部入队",
+            body: <FullSetForm onSubmit={async brief => {
+              const { created } = await api.contentJobFullSet(brief);
+              await reloadJobs();
+              return created.length;
+            }} />,
+          })}><Icon name="sparkle" size={14} /> 一次生成全套</button>
         </div>
       </div>
 
@@ -65,7 +76,8 @@ export function ContentView() {
           <div className="track-grid">
             {(tracks ?? []).map(t => (
               <div key={t.id} className="track-card" onClick={() => openDrawer({
-                eyebrow: `NEW · ${t.name}`, title: `新建：${t.name}`, sub: t.desc, body: <NewContentForm t={t} />,
+                eyebrow: `NEW · ${t.name}`, title: `新建：${t.name}`, sub: t.desc,
+                body: <NewContentForm t={t} onCreated={reloadJobs} />,
               })}>
                 <div className="track-icon" style={{ background: `${t.color}1a`, color: t.color }}>
                   <Icon name={t.icon} size={18} />
@@ -341,8 +353,27 @@ function CostDonut() {
   );
 }
 
-function NewContentForm({ t }: { t: ContentTrack }) {
+function NewContentForm({ t, onCreated }: { t: ContentTrack; onCreated: () => void | Promise<void> }) {
   const { toast, closeDrawer } = useUI();
+  const [brief, setBrief] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const canSubmit = brief.trim().length > 0 && !submitting;
+
+  async function submit(): Promise<void> {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      await api.contentJobCreate({ track: t.id, title: brief.trim(), note: `${t.name} · 直接 · 实战 voice` });
+      await onCreated();
+      toast(`已开始生成「${t.name}」· 预计 ${t.duration}`);
+      closeDrawer();
+    } catch (e) {
+      toast(`失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div>
       <div className="card soft" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -357,7 +388,8 @@ function NewContentForm({ t }: { t: ContentTrack }) {
 
       <div className="mt-16">
         <div className="muted text-xs mono" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>主题 / brief</div>
-        <textarea className="textarea-input" placeholder="例如：用 SQLite 跑生产环境的 5 个反直觉做法，受众是 1-3 年 indie dev。" />
+        <textarea className="textarea-input" placeholder="例如：用 SQLite 跑生产环境的 5 个反直觉做法，受众是 1-3 年 indie dev。"
+          value={brief} onChange={e => setBrief(e.target.value)} />
       </div>
 
       <div className="mt-16 grid-2" style={{ gap: 8 }}>
@@ -401,8 +433,49 @@ function NewContentForm({ t }: { t: ContentTrack }) {
       <div className="mt-16" style={{ display: "flex", gap: 8 }}>
         <button className="btn" onClick={() => toast(`已保存为模板：${t.name}`)}><Icon name="file" size={12} /> 保存为模板</button>
         <button className="btn primary" style={{ marginLeft: "auto" }}
-          onClick={() => { toast(`已开始生成「${t.name}」· 预计 ${t.duration}`); closeDrawer(); }}>
-          <Icon name="sparkle" size={12} /> 开始生成 · 预计 {t.duration}
+          disabled={!canSubmit}
+          onClick={() => void submit()}>
+          <Icon name="sparkle" size={12} /> {submitting ? "提交中…" : `开始生成 · 预计 ${t.duration}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FullSetForm({ onSubmit }: { onSubmit: (brief: string) => Promise<number> }) {
+  const { toast, closeDrawer } = useUI();
+  const [brief, setBrief] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(): Promise<void> {
+    if (!brief.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const n = await onSubmit(brief.trim());
+      toast(`已发起「一次生成全套」· ${n} 种形态已入队`);
+      closeDrawer();
+    } catch (e) {
+      toast(`失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="card soft" style={{ fontSize: 13, color: "var(--text-2)" }}>
+        一个 brief 同时入队 6 个形态（长文 / 短视频 / 长视频 / 音频 / 图像 / 图文笔记），各 Agent 并行执行。
+      </div>
+      {FULL_SET_FIELDS.map(f => (
+        <div key={f.name} className="mt-16">
+          <div className="muted text-xs mono" style={{ textTransform: "uppercase", letterSpacing: "0.06em" }}>{f.label}</div>
+          <textarea className="textarea-input mt-8" placeholder={f.placeholder}
+            value={brief} onChange={e => setBrief(e.target.value)} />
+        </div>
+      ))}
+      <div className="mt-16" style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button className="btn primary" disabled={!brief.trim() || submitting} onClick={() => void submit()}>
+          <Icon name="sparkle" size={12} /> {submitting ? "提交中…" : "并行入队 · 6 种形态"}
         </button>
       </div>
     </div>

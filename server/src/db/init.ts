@@ -6,6 +6,7 @@ import { pool, query } from "./pool.js";
 import { COMPANY, DIRECTIONS, PIPELINE, CHANNELS, FUNNEL, ACTIVITY, COPILOT_INIT } from "../data/core.js";
 import { KNOWLEDGE, PROMPTS, SKILLS, AGENTS, RUNS_TODAY, AUTOMATIONS } from "../data/intelligence.js";
 import { TRACKS, JOBS, MODELS, LIBRARY } from "../data/content.js";
+import { MANAGED_MODELS } from "../data/managed-models.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -16,6 +17,7 @@ export async function initDatabase(): Promise<void> {
   const { rows } = await query<{ c: string }>("SELECT COUNT(*)::text AS c FROM company");
   if (Number(rows[0]?.c ?? 0) > 0) {
     console.log("[db] schema present, seed skipped");
+    await backfillIfEmpty();
     return;
   }
 
@@ -174,6 +176,18 @@ export async function initDatabase(): Promise<void> {
       );
     }
 
+    for (let i = 0; i < MANAGED_MODELS.length; i++) {
+      const m = MANAGED_MODELS[i]!;
+      await client.query(
+        `INSERT INTO managed_models
+           (id, name, vendor, category, modality, context, pricing, rating, latency,
+            calls, spend, strengths, tags, enabled, default_for, color, position)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17)`,
+        [m.id, m.name, m.vendor, m.category, m.modality, m.context, m.pricing, m.rating, m.latency,
+         m.calls, m.spend, m.strengths, JSON.stringify(m.tags), m.enabled, m.defaultFor, m.color, i]
+      );
+    }
+
     // Default user — the "founder" the dashboard greets. WeChat QR mock
     // resolves to this user; phone-login users are created on demand.
     await client.query(
@@ -229,5 +243,28 @@ export async function initDatabase(): Promise<void> {
     throw err;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Idempotent backfill for tables added after the initial schema. Runs on every
+ * boot when the database is already initialised; only inserts rows for tables
+ * that are still empty so it's safe to re-run.
+ */
+async function backfillIfEmpty(): Promise<void> {
+  const { rows } = await query<{ c: string }>("SELECT COUNT(*)::text AS c FROM managed_models");
+  if (Number(rows[0]?.c ?? 0) > 0) return;
+  console.log("[db] backfilling managed_models…");
+  for (let i = 0; i < MANAGED_MODELS.length; i++) {
+    const m = MANAGED_MODELS[i]!;
+    await query(
+      `INSERT INTO managed_models
+         (id, name, vendor, category, modality, context, pricing, rating, latency,
+          calls, spend, strengths, tags, enabled, default_for, color, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17)
+       ON CONFLICT (id) DO NOTHING`,
+      [m.id, m.name, m.vendor, m.category, m.modality, m.context, m.pricing, m.rating, m.latency,
+       m.calls, m.spend, m.strengths, JSON.stringify(m.tags), m.enabled, m.defaultFor, m.color, i]
+    );
   }
 }

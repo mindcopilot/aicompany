@@ -198,6 +198,29 @@ CREATE TABLE IF NOT EXISTS content_models (
   position  INT NOT NULL
 );
 
+-- Managed models — the 模型管理 module. Tracks the full registry of LLM /
+-- image / video / audio / embed models, vendor connections, enabled state and
+-- per-task routing defaults.
+CREATE TABLE IF NOT EXISTS managed_models (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  vendor      TEXT NOT NULL,
+  category    TEXT NOT NULL CHECK (category IN ('text','image','video','audio','embed')),
+  modality    TEXT NOT NULL,
+  context     TEXT NOT NULL,
+  pricing     TEXT NOT NULL,
+  rating      INT  NOT NULL,
+  latency     TEXT NOT NULL,
+  calls       INT  NOT NULL DEFAULT 0,
+  spend       INT  NOT NULL DEFAULT 0,
+  strengths   TEXT NOT NULL,
+  tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+  default_for TEXT,
+  color       TEXT NOT NULL,
+  position    INT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS content_library (
   id    TEXT PRIMARY KEY,
   track TEXT NOT NULL REFERENCES content_tracks(id),
